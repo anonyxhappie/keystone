@@ -3,9 +3,9 @@ package delivery
 import (
 	"testing"
 
-	"github.com/anonyxhappie/keystone/internal/domain"
-	"github.com/anonyxhappie/keystone/internal/evidence"
-	"github.com/anonyxhappie/keystone/internal/state"
+	"github.com/anonyxhappie/keystone/v2/internal/domain"
+	"github.com/anonyxhappie/keystone/v2/internal/evidence"
+	"github.com/anonyxhappie/keystone/v2/internal/state"
 )
 
 func TestProductionDeploymentRequiresApproval(t *testing.T) {

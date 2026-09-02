@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/anonyxhappie/keystone/internal/domain"
+	"github.com/anonyxhappie/keystone/v2/internal/domain"
 )
 
 // Compile preserves the V1 API while selecting a small, provenance-bearing set

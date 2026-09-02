@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/anonyxhappie/keystone/internal/domain"
-	"github.com/anonyxhappie/keystone/internal/harness"
-	"github.com/anonyxhappie/keystone/internal/observation"
-	"github.com/anonyxhappie/keystone/internal/state"
+	"github.com/anonyxhappie/keystone/v2/internal/domain"
+	"github.com/anonyxhappie/keystone/v2/internal/harness"
+	"github.com/anonyxhappie/keystone/v2/internal/observation"
+	"github.com/anonyxhappie/keystone/v2/internal/state"
 )
 
 func initRunnableFixture(t *testing.T, root string) state.Store {

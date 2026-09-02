@@ -1,6 +1,6 @@
 package harness
 
-import "github.com/anonyxhappie/keystone/internal/domain"
+import "github.com/anonyxhappie/keystone/v2/internal/domain"
 
 type Adapter interface {
 	Discover() error

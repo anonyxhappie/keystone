@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anonyxhappie/keystone/internal/domain"
+	"github.com/anonyxhappie/keystone/v2/internal/domain"
 )
 
 func NewOrder(request string) domain.WorkOrder {

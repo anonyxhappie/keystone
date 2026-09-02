@@ -3,8 +3,8 @@ package control
 import (
 	"fmt"
 
-	"github.com/anonyxhappie/keystone/internal/observation"
-	"github.com/anonyxhappie/keystone/internal/runtime"
+	"github.com/anonyxhappie/keystone/v2/internal/observation"
+	"github.com/anonyxhappie/keystone/v2/internal/runtime"
 )
 
 type ReplayReport struct {

@@ -2,7 +2,7 @@ package harness
 
 import (
 	"encoding/json"
-	"github.com/anonyxhappie/keystone/internal/domain"
+	"github.com/anonyxhappie/keystone/v2/internal/domain"
 )
 
 func Render(p domain.WorkPacket) string {

@@ -5,11 +5,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anonyxhappie/keystone/internal/domain"
-	"github.com/anonyxhappie/keystone/internal/evidence"
-	"github.com/anonyxhappie/keystone/internal/policy"
-	"github.com/anonyxhappie/keystone/internal/state"
-	"github.com/anonyxhappie/keystone/internal/work"
+	"github.com/anonyxhappie/keystone/v2/internal/domain"
+	"github.com/anonyxhappie/keystone/v2/internal/evidence"
+	"github.com/anonyxhappie/keystone/v2/internal/policy"
+	"github.com/anonyxhappie/keystone/v2/internal/state"
+	"github.com/anonyxhappie/keystone/v2/internal/work"
 )
 
 func CreateRelease(s state.Store, version string, evidenceIDs []string, gitReference string) (domain.Release, error) {

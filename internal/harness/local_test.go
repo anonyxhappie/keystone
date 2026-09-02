@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/anonyxhappie/keystone/internal/domain"
+	"github.com/anonyxhappie/keystone/v2/internal/domain"
 )
 
 func TestLocalAdapterLifecycleAndRedaction(t *testing.T) {

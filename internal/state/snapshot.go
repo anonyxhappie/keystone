@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/anonyxhappie/keystone/internal/domain"
-	"github.com/anonyxhappie/keystone/internal/runtime"
+	"github.com/anonyxhappie/keystone/v2/internal/domain"
+	"github.com/anonyxhappie/keystone/v2/internal/runtime"
 )
 
 // Snapshot is a materialized cache. The event journal remains the durable source

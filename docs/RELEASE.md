@@ -1,5 +1,10 @@
 # V2 release process
 
+The V2 module uses Go semantic import versioning. Its module path is
+`github.com/anonyxhappie/keystone/v2`; publish packaging fixes as a new `v2.x.y`
+tag rather than using the unversioned module path. Because `v2.0.0` already
+exists remotely, the corrected packaging release is `v2.0.1`.
+
 Run the release checks from the repository root:
 
     gofmt -w internal cmd/keystone

@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/anonyxhappie/keystone/internal/domain"
+	"github.com/anonyxhappie/keystone/v2/internal/domain"
 )
 
 func Evaluate(action string) domain.PolicyDecision {

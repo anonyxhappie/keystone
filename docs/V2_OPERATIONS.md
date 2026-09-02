@@ -14,7 +14,7 @@ The planning authority creates a work packet. The configured harness has executi
 
 Keystone is a standalone Go executable. The target project needs no Keystone runtime dependency.
 
-    go install github.com/anonyxhappie/keystone/cmd/keystone@v2.0.0
+    go install github.com/anonyxhappie/keystone/v2/cmd/keystone@v2.0.1
     cd project
     keystone init
 

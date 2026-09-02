@@ -9,22 +9,22 @@ import (
 	"strings"
 	"time"
 
-	controlctx "github.com/anonyxhappie/keystone/internal/context"
-	"github.com/anonyxhappie/keystone/internal/control"
-	"github.com/anonyxhappie/keystone/internal/domain"
-	"github.com/anonyxhappie/keystone/internal/evidence"
-	"github.com/anonyxhappie/keystone/internal/git"
-	"github.com/anonyxhappie/keystone/internal/harness"
-	"github.com/anonyxhappie/keystone/internal/observation"
-	"github.com/anonyxhappie/keystone/internal/policy"
-	"github.com/anonyxhappie/keystone/internal/project"
-	"github.com/anonyxhappie/keystone/internal/runtime"
-	"github.com/anonyxhappie/keystone/internal/state"
-	"github.com/anonyxhappie/keystone/internal/validation"
-	"github.com/anonyxhappie/keystone/internal/work"
+	controlctx "github.com/anonyxhappie/keystone/v2/internal/context"
+	"github.com/anonyxhappie/keystone/v2/internal/control"
+	"github.com/anonyxhappie/keystone/v2/internal/domain"
+	"github.com/anonyxhappie/keystone/v2/internal/evidence"
+	"github.com/anonyxhappie/keystone/v2/internal/git"
+	"github.com/anonyxhappie/keystone/v2/internal/harness"
+	"github.com/anonyxhappie/keystone/v2/internal/observation"
+	"github.com/anonyxhappie/keystone/v2/internal/policy"
+	"github.com/anonyxhappie/keystone/v2/internal/project"
+	"github.com/anonyxhappie/keystone/v2/internal/runtime"
+	"github.com/anonyxhappie/keystone/v2/internal/state"
+	"github.com/anonyxhappie/keystone/v2/internal/validation"
+	"github.com/anonyxhappie/keystone/v2/internal/work"
 )
 
-const version = "2.0.0"
+const version = "2.0.1"
 
 func main() {
 	if len(os.Args) < 2 {

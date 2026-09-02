@@ -67,7 +67,7 @@ func runContinue(root string) {
 func runValidate(root string) {
 	var p domain.Project
 	if err := state.New(root).Read("project.json", &p); err != nil { fatal(err) }
-	plan := validation.PlanFor(domain.Risk{Level:"low"}, p.Capabilities)
+	plan := validation.PlanFor(domain.Risk{Level: "low"}, p.Capabilities)
 	fmt.Printf("Validation tier %d: %s\n", plan.Tier, strings.Join(plan.Checks, ", "))
 }
 

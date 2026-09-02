@@ -13,20 +13,20 @@ const (
 )
 
 type Result struct {
-	Status string
-	Claims []string
-	ChangedFiles []string
+	Status           string
+	Claims           []string
+	ChangedFiles     []string
 	ValidationPassed bool
-	PreviousActions []string
+	PreviousActions  []string
 }
 
 func Evaluate(r Result) []domain.Finding {
 	var findings []domain.Finding
 	if strings.EqualFold(r.Status, "completed") && !r.ValidationPassed {
-		findings = append(findings, domain.Finding{ID:"F-UNVERIFIED", Type:UnsupportedCompletion, Severity:"high", Confidence:0.99, RecommendedAction:"RUN_VALIDATION"})
+		findings = append(findings, domain.Finding{ID: "F-UNVERIFIED", Type: UnsupportedCompletion, Severity: "high", Confidence: 0.99, RecommendedAction: "RUN_VALIDATION"})
 	}
 	if len(r.PreviousActions) >= 2 && r.PreviousActions[len(r.PreviousActions)-1] == r.PreviousActions[len(r.PreviousActions)-2] {
-		findings = append(findings, domain.Finding{ID:"F-LOOP", Type:Loop, Severity:"warning", Confidence:0.97, RecommendedAction:"REPLAN"})
+		findings = append(findings, domain.Finding{ID: "F-LOOP", Type: Loop, Severity: "warning", Confidence: 0.97, RecommendedAction: "REPLAN"})
 	}
 	return findings
 }

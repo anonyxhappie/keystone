@@ -14,6 +14,7 @@ cd your-project
 keystone init
 keystone status
 keystone ask "add the requested feature"
+keystone run "add the requested feature"
 ```
 
 `keystone init` is safe to run against an existing project and creates a portable `.keystone/` state boundary. `keystone ask` creates a durable WorkOrder and emits a harness-neutral WorkPacket that can be handed to an existing AI harness.
@@ -23,6 +24,8 @@ keystone ask "add the requested feature"
 - `keystone init` — inspect and initialize project state.
 - `keystone status` — inspect durable project state.
 - `keystone ask "..."` — create a work order and generate the next harness packet.
+- `keystone run "..."` — create a durable run request and record it in the append-only journal; execution remains delegated to the configured harness.
+- `keystone replay [run-id]` — replay the durable event journal for a run.
 - `keystone doctor` — basic local installation check.
 
 ## Design principles

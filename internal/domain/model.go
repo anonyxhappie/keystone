@@ -28,13 +28,15 @@ const (
 )
 
 type Project struct {
-	SchemaVersion string       `json:"schemaVersion" yaml:"schemaVersion"`
-	ID            string       `json:"id" yaml:"id"`
-	Root          string       `json:"root" yaml:"root"`
-	Name          string       `json:"name" yaml:"name"`
-	Capabilities  []Capability `json:"capabilities" yaml:"capabilities"`
-	CreatedAt     time.Time    `json:"createdAt" yaml:"createdAt"`
-	UpdatedAt     time.Time    `json:"updatedAt" yaml:"updatedAt"`
+	SchemaVersion    string       `json:"schemaVersion" yaml:"schemaVersion"`
+	ID               string       `json:"id" yaml:"id"`
+	Root             string       `json:"root" yaml:"root"`
+	Name             string       `json:"name" yaml:"name"`
+	Capabilities     []Capability `json:"capabilities" yaml:"capabilities"`
+	CreatedAt        time.Time    `json:"createdAt" yaml:"createdAt"`
+	UpdatedAt        time.Time    `json:"updatedAt" yaml:"updatedAt"`
+	InstructionFiles []string     `json:"instructionFiles,omitempty" yaml:"instructionFiles,omitempty"`
+	Topology         []string     `json:"topology,omitempty" yaml:"topology,omitempty"`
 }
 
 type Capability struct {
@@ -54,6 +56,10 @@ type Requirement struct {
 	Status        Status   `json:"status" yaml:"status"`
 	Source        string   `json:"source,omitempty" yaml:"source,omitempty"`
 	Provenance    []string `json:"provenance,omitempty" yaml:"provenance,omitempty"`
+	WorkOrderID   string   `json:"workOrderId,omitempty" yaml:"workOrderId,omitempty"`
+	ChangedFiles  []string `json:"changedFiles,omitempty" yaml:"changedFiles,omitempty"`
+	ValidationIDs []string `json:"validationIds,omitempty" yaml:"validationIds,omitempty"`
+	EvidenceIDs   []string `json:"evidenceIds,omitempty" yaml:"evidenceIds,omitempty"`
 }
 
 type Decision struct {
@@ -78,6 +84,7 @@ type Constraint struct {
 }
 
 type WorkOrder struct {
+	SchemaVersion string    `json:"schemaVersion,omitempty" yaml:"schemaVersion,omitempty"`
 	ID            string    `json:"id" yaml:"id"`
 	SourceRequest string    `json:"sourceRequest" yaml:"sourceRequest"`
 	Objective     string    `json:"objective" yaml:"objective"`
@@ -87,6 +94,8 @@ type WorkOrder struct {
 	Autonomy      string    `json:"autonomy" yaml:"autonomy"`
 	Status        Status    `json:"status" yaml:"status"`
 	CreatedAt     time.Time `json:"createdAt" yaml:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt,omitempty" yaml:"updatedAt,omitempty"`
+	RunID         string    `json:"runId,omitempty" yaml:"runId,omitempty"`
 }
 
 type Risk struct {
@@ -160,6 +169,8 @@ type Finding struct {
 	Confidence        float64  `json:"confidence" yaml:"confidence"`
 	EvidenceIDs       []string `json:"evidenceIds,omitempty" yaml:"evidenceIds,omitempty"`
 	RecommendedAction string   `json:"recommendedAction,omitempty" yaml:"recommendedAction,omitempty"`
+	Explanation       string   `json:"explanation,omitempty" yaml:"explanation,omitempty"`
+	Provenance        []string `json:"provenance,omitempty" yaml:"provenance,omitempty"`
 }
 
 type PolicyDecision struct {
@@ -171,27 +182,35 @@ type PolicyDecision struct {
 }
 
 type Checkpoint struct {
-	ID              string   `json:"id" yaml:"id"`
-	WorkOrderID     string   `json:"workOrderId" yaml:"workOrderId"`
-	State           string   `json:"state" yaml:"state"`
-	Completed       []string `json:"completed,omitempty" yaml:"completed,omitempty"`
-	Pending         []string `json:"pending,omitempty" yaml:"pending,omitempty"`
-	ChangedFiles    []string `json:"changedFiles,omitempty" yaml:"changedFiles,omitempty"`
-	LastCommit      string   `json:"lastCommit,omitempty" yaml:"lastCommit,omitempty"`
-	ContextManifest string   `json:"contextManifest,omitempty" yaml:"contextManifest,omitempty"`
-	Unresolved      []string `json:"unresolvedQuestions,omitempty" yaml:"unresolvedQuestions,omitempty"`
-	Blockers        []string `json:"blockers,omitempty" yaml:"blockers,omitempty"`
+	ID              string      `json:"id" yaml:"id"`
+	WorkOrderID     string      `json:"workOrderId" yaml:"workOrderId"`
+	State           string      `json:"state" yaml:"state"`
+	Completed       []string    `json:"completed,omitempty" yaml:"completed,omitempty"`
+	Pending         []string    `json:"pending,omitempty" yaml:"pending,omitempty"`
+	ChangedFiles    []string    `json:"changedFiles,omitempty" yaml:"changedFiles,omitempty"`
+	LastCommit      string      `json:"lastCommit,omitempty" yaml:"lastCommit,omitempty"`
+	ContextManifest string      `json:"contextManifest,omitempty" yaml:"contextManifest,omitempty"`
+	Unresolved      []string    `json:"unresolvedQuestions,omitempty" yaml:"unresolvedQuestions,omitempty"`
+	Blockers        []string    `json:"blockers,omitempty" yaml:"blockers,omitempty"`
+	SchemaVersion   string      `json:"schemaVersion,omitempty" yaml:"schemaVersion,omitempty"`
+	HarnessID       string      `json:"harnessId,omitempty" yaml:"harnessId,omitempty"`
+	RunID           string      `json:"runId,omitempty" yaml:"runId,omitempty"`
+	NextAction      *NextAction `json:"nextAction,omitempty" yaml:"nextAction,omitempty"`
+	CreatedAt       time.Time   `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
 }
 
 type Learning struct {
-	ID             string   `json:"id" yaml:"id"`
-	Scope          string   `json:"scope" yaml:"scope"`
-	Observation    string   `json:"observation" yaml:"observation"`
-	EvidenceIDs    []string `json:"evidenceIds,omitempty" yaml:"evidenceIds,omitempty"`
-	Confidence     float64  `json:"confidence" yaml:"confidence"`
-	ProposedChange string   `json:"proposedChange" yaml:"proposedChange"`
-	Status         string   `json:"status" yaml:"status"`
-	Version        int      `json:"version" yaml:"version"`
+	ID                string   `json:"id" yaml:"id"`
+	Scope             string   `json:"scope" yaml:"scope"`
+	Observation       string   `json:"observation" yaml:"observation"`
+	BeforeEvidenceIDs []string `json:"beforeEvidenceIds,omitempty" yaml:"beforeEvidenceIds,omitempty"`
+	EvidenceIDs       []string `json:"evidenceIds,omitempty" yaml:"evidenceIds,omitempty"`
+	Confidence        float64  `json:"confidence" yaml:"confidence"`
+	ProposedChange    string   `json:"proposedChange" yaml:"proposedChange"`
+	Outcome           string   `json:"outcome,omitempty" yaml:"outcome,omitempty"`
+	Rollback          string   `json:"rollback,omitempty" yaml:"rollback,omitempty"`
+	Status            string   `json:"status" yaml:"status"`
+	Version           int      `json:"version" yaml:"version"`
 }
 
 type Artifact struct {
@@ -207,6 +226,7 @@ type Harness struct {
 	Capabilities []string `json:"capabilities,omitempty"`
 	Version      string   `json:"version,omitempty"`
 }
+
 type HarnessSession struct {
 	ID        string    `json:"id"`
 	HarnessID string    `json:"harnessId"`
@@ -239,15 +259,21 @@ type Policy struct {
 type Approval struct {
 	ID         string    `json:"id"`
 	Action     string    `json:"action"`
+	RunID      string    `json:"runId,omitempty"`
 	ApprovedBy string    `json:"approvedBy"`
 	Reason     string    `json:"reason,omitempty"`
 	At         time.Time `json:"at"`
 }
 type Release struct {
-	ID          string   `json:"id"`
-	Version     string   `json:"version"`
-	Status      Status   `json:"status"`
-	EvidenceIDs []string `json:"evidenceIds,omitempty"`
+	ID                     string    `json:"id"`
+	Version                string    `json:"version"`
+	Status                 Status    `json:"status"`
+	GitReference           string    `json:"gitReference,omitempty"`
+	RequirementIDs         []string  `json:"requirementIds,omitempty"`
+	EvidenceIDs            []string  `json:"evidenceIds,omitempty"`
+	SecurityEvidenceIDs    []string  `json:"securityEvidenceIds,omitempty"`
+	OperationalEvidenceIDs []string  `json:"operationalEvidenceIds,omitempty"`
+	CreatedAt              time.Time `json:"createdAt"`
 }
 type Deployment struct {
 	ID          string `json:"id"`
@@ -260,4 +286,12 @@ type Incident struct {
 	Summary     string `json:"summary"`
 	Severity    string `json:"severity"`
 	WorkOrderID string `json:"workOrderId,omitempty"`
+}
+
+type Environment struct {
+	ID        string   `json:"id"`
+	Name      string   `json:"name"`
+	Kind      string   `json:"kind"`
+	Variables []string `json:"variables,omitempty"`
+	Protected bool     `json:"protected"`
 }

@@ -11,15 +11,17 @@ type Command struct {
 	Name string   `json:"name"`
 	Args []string `json:"args"`
 	Tier int      `json:"tier"`
+	Dir  string   `json:"dir,omitempty"`
 }
 type Result struct {
-	Name     string        `json:"name"`
-	Tier     int           `json:"tier"`
-	Passed   bool          `json:"passed"`
-	ExitCode int           `json:"exitCode"`
-	Duration time.Duration `json:"duration"`
-	Stdout   string        `json:"stdout,omitempty"`
-	Stderr   string        `json:"stderr,omitempty"`
+	Name         string        `json:"name"`
+	Tier         int           `json:"tier"`
+	Passed       bool          `json:"passed"`
+	ExitCode     int           `json:"exitCode"`
+	Duration     time.Duration `json:"duration"`
+	Stdout       string        `json:"stdout,omitempty"`
+	Stderr       string        `json:"stderr,omitempty"`
+	ArtifactRefs []string      `json:"artifactRefs,omitempty"`
 }
 
 // Run executes an explicit argv command. It never invokes a shell.
@@ -32,6 +34,7 @@ func Run(ctx context.Context, c Command) Result {
 	}
 	start := time.Now()
 	cmd := exec.CommandContext(ctx, c.Args[0], c.Args[1:]...)
+	cmd.Dir = c.Dir
 	var out, errout bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errout

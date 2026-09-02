@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "2",
+  "branch": "release/v2.0.0",
+  "sourceOfTruth": "executable code and tests",
+  "evidence": {
+    "automatedGates": ["GOCACHE=/tmp/keystone-go-build GOMODCACHE=/tmp/keystone-go-modcache go test ./...", "go vet ./...", "go test -race ./...", "go build -trimpath ./cmd/keystone"],
+    "runtimeScenarios": ["internal/control/engine_test.go", "real Git-backed CLI fixture", "separate CLI pause and continue processes"],
+    "audit": ["docs/IMPLEMENTATION_STATUS.md", "git diff --check", "jq empty docs/IMPLEMENTATION_STATUS.json"]
+  },
+  "capabilities": [
+    {"name":"canonical lifecycle and NextAction","implementation":["internal/runtime","internal/control"],"tests":["internal/runtime/state_machine_test.go","internal/control/engine_test.go"],"status":"IMPLEMENTED"},
+    {"name":"durable snapshot, atomic confined writes, recovery","implementation":["internal/state","internal/control/recovery.go"],"tests":["internal/state/store_test.go","internal/control/engine_test.go"],"status":"IMPLEMENTED"},
+    {"name":"append-only journal, ordering, idempotency, replay","implementation":["internal/observation","internal/control/replay.go"],"tests":["internal/observation/journal_test.go","internal/control/engine_test.go"],"status":"IMPLEMENTED"},
+    {"name":"manual and local-process harness strategies","implementation":["internal/harness","internal/control/engine.go"],"tests":["internal/harness/local_test.go","internal/control/engine_test.go"],"status":"IMPLEMENTED"},
+    {"name":"observation normalization and persisted provenance","implementation":["internal/harness/local.go","internal/control/engine.go"],"tests":["internal/harness/local_test.go"],"status":"IMPLEMENTED"},
+    {"name":"evidence lifecycle and requirement traceability","implementation":["internal/evidence","internal/domain","internal/control/engine.go"],"tests":["internal/evidence/store_test.go","internal/control/engine_test.go"],"status":"IMPLEMENTED"},
+    {"name":"deterministic validation and artifact capture","implementation":["internal/validation","internal/artifact","internal/control/engine.go"],"tests":["internal/validation/runner_test.go","internal/control/engine_test.go"],"status":"IMPLEMENTED"},
+    {"name":"supervisor findings","implementation":["internal/supervisor"],"tests":["internal/supervisor/supervisor_test.go","internal/control/engine_test.go"],"status":"IMPLEMENTED"},
+    {"name":"bounded full-auto retry, pause, approval, stop","implementation":["internal/control","cmd/keystone"],"tests":["internal/control/engine_test.go"],"status":"IMPLEMENTED"},
+    {"name":"learning lifecycle and active context use","implementation":["internal/learning","internal/control/engine.go"],"tests":["internal/learning/store_test.go"],"status":"IMPLEMENTED"},
+    {"name":"checkpoint-safe harness switching","implementation":["internal/control/engine.go","internal/harness"],"tests":["internal/control/engine_test.go"],"status":"IMPLEMENTED"},
+    {"name":"project intelligence and impact-aware context","implementation":["internal/project","internal/context"],"tests":["internal/project/detect_test.go","internal/context/compiler_test.go"],"status":"IMPLEMENTED"},
+    {"name":"release, deployment, environment and incident state","implementation":["internal/delivery","internal/domain"],"tests":["internal/delivery/store_test.go"],"status":"IMPLEMENTED"},
+    {"name":"configured CI/browser/operational integrations","implementation":["internal/validation","internal/harness","internal/delivery"],"tests":["internal/validation/runner_test.go","internal/delivery/store_test.go"],"status":"PARTIAL","limitation":"Remote service observations and production execution require an explicitly configured adapter or command."},
+    {"name":"semantic architecture and requirement review","implementation":["internal/supervisor","cmd/keystone"],"tests":["internal/supervisor/supervisor_test.go"],"status":"PARTIAL","limitation":"The local core exposes deterministic review inputs; semantic model review is intentionally an external harness responsibility."},
+    {"name":"cross-process live harness registry","implementation":["internal/control","cmd/keystone"],"tests":["internal/control/engine_test.go"],"status":"PARTIAL","limitation":"Pause is a durable control marker; no daemon or PID registry is required by the local-first core."}
+  ],
+  "releaseReady": true,
+  "releaseReadyRationale": "All local core V2 gates pass. Remote CI and optional vendor-specific adapters remain outside the local-first release boundary and must be verified after the user's push."
+}

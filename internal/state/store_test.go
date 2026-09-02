@@ -27,3 +27,44 @@ func TestInitAndRead(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSnapshotRejectsLifecycleCorruption(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	if _, err := s.Init("fixture", nil); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := s.LoadSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap.Lifecycle = "COMPLETE"
+	if err := s.SaveSnapshot(snap); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.LoadSnapshot(); err == nil {
+		t.Fatal("expected lifecycle corruption to be rejected")
+	}
+}
+
+func TestStatePathCannotEscapeBoundary(t *testing.T) {
+	s := New(t.TempDir())
+	if err := s.Write("../outside.json", map[string]string{"x": "y"}); err == nil {
+		t.Fatal("expected path escape to be rejected")
+	}
+}
+
+func TestStatePathCannotFollowSymlinkOutsideBoundary(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	if _, err := s.Init("fixture", nil); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, root+"/.keystone/escape"); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := s.Write("escape/file.json", map[string]string{"secret": "no"}); err == nil {
+		t.Fatal("expected symlink escape to be rejected")
+	}
+}

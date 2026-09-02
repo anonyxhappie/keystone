@@ -6,27 +6,41 @@ Keystone is an open-source, language-, framework-, architecture-, and harness-ag
 
 Keystone does not replace the harness. It maintains durable project state, compiles relevant context, generates harness-specific work packets, observes results, evaluates correctness and harness behavior, detects unsupported completion claims, drift, loops and waste, and continues work within explicit policy.
 
-## V1 quick start
+## V2 quick start
 
 ```bash
-go install github.com/anonyxhappie/keystone/cmd/keystone@v1.0.0
+go install github.com/anonyxhappie/keystone/cmd/keystone@v2.0.0
 cd your-project
 keystone init
 keystone status
-keystone ask "add the requested feature"
 keystone run "add the requested feature"
 ```
 
-`keystone init` is safe to run against an existing project and creates a portable `.keystone/` state boundary. `keystone ask` creates a durable WorkOrder and emits a harness-neutral WorkPacket that can be handed to an existing AI harness.
+`keystone init` creates a portable `.keystone/` state boundary. `keystone run` creates a durable work order, advances the canonical lifecycle, executes a configured local process harness, persists observations and evidence, validates the result, and stops or completes only through the state machine. Without an executable harness, it records a durable `BLOCKED` checkpoint.
 
-## V1 commands
+Configure a local process harness in `.keystone/harness.json`:
+
+```json
+{"name":"local-process","command":"your-harness","args":[],"timeoutSeconds":300}
+```
+
+The command receives the structured work packet on stdin. Its newline-delimited stdout is normalized into observations. `keystone ask` remains the manual/instruction-file integration.
+
+## Commands
+
+Completion requires at least one discovered deterministic validation check to pass; a harness process exit or completion claim is never sufficient by itself.
 
 - `keystone init` — inspect and initialize project state.
 - `keystone status` — inspect durable project state.
 - `keystone ask "..."` — create a work order and generate the next harness packet.
-- `keystone run "..."` — create a durable run request and record it in the append-only journal; execution remains delegated to the configured harness.
-- `keystone replay [run-id]` — replay the durable event journal for a run.
-- `keystone doctor` — basic local installation check.
+- `keystone run "..."` — execute the bounded control loop through the configured harness.
+- `keystone continue` — reconstruct the latest durable work order and resume only through permitted recovery transitions.
+- `keystone pause`, `keystone approve`, `keystone stop` — record explicit control decisions and approval provenance.
+- `keystone validate` — run deterministic project checks without a harness.
+- `keystone review` — inspect persisted findings and review recommendation.
+- `keystone replay <run-id>` — replay events and reconstruct the canonical machine state.
+- `keystone doctor` — inspect Git and discovered harness capabilities.
+- `keystone version` — print the executable version.
 
 ## Design principles
 
@@ -55,4 +69,4 @@ internal/state/            # state persistence
 docs/                      # architecture and implementation specifications
 ```
 
-See [`docs/KEYSTONE_ARCHITECTURE_V1.md`](docs/KEYSTONE_ARCHITECTURE_V1.md) and [`docs/V1_IMPLEMENTATION_PLAN.md`](docs/V1_IMPLEMENTATION_PLAN.md) for the V1 boundary.
+See [docs/KEYSTONE_ARCHITECTURE_V2.md](docs/KEYSTONE_ARCHITECTURE_V2.md), [docs/V2_OPERATIONS.md](docs/V2_OPERATIONS.md), and [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md) for the V2 contracts, operations, limitations, and executable audit.

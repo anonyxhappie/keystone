@@ -13,10 +13,15 @@ type Adapter interface {
 	Result() (domain.Status, error)
 }
 
+type HarnessIdentity interface {
+	HarnessID() string
+}
+
 type Manual struct{}
 
 func (Manual) Discover() error                           { return nil }
 func (Manual) Capabilities() []string                    { return []string{"prompt-export", "result-import"} }
+func (Manual) HarnessID() string                         { return "manual" }
 func (Manual) Start(p domain.WorkPacket) (string, error) { return Render(p), nil }
 func (Manual) Send(string) error                         { return nil }
 func (Manual) Observe() ([]domain.Observation, error)    { return nil, nil }

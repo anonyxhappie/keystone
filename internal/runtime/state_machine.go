@@ -68,6 +68,7 @@ type Machine struct {
 // Unknown event types are ignored by Reduce for forward-compatible replay.
 type Event struct {
 	Type     string    `json:"type"`
+	From     State     `json:"from,omitempty"`
 	To       State     `json:"to,omitempty"`
 	Decision Decision  `json:"decision,omitempty"`
 	Reason   string    `json:"reason,omitempty"`
@@ -82,13 +83,23 @@ func Reduce(events []Event) (*Machine, error) {
 		var err error
 		switch e.Type {
 		case "transition":
+			if e.From != "" && e.From != m.State {
+				return nil, fmt.Errorf("replay transition source %s does not match machine state %s", e.From, m.State)
+			}
 			at := e.At
 			if at.IsZero() {
 				at = time.Unix(0, 0).UTC()
 			}
 			err = m.transitionAt(e.To, e.Reason, at)
 		case "decision":
-			err = m.ApplyDecision(e.Decision, e.Reason)
+			if e.From != "" && e.From != m.State {
+				return nil, fmt.Errorf("replay decision source %s does not match machine state %s", e.From, m.State)
+			}
+			at := e.At
+			if at.IsZero() {
+				at = time.Unix(0, 0).UTC()
+			}
+			err = m.applyDecisionAt(e.Decision, e.Reason, at)
 		case "":
 		default:
 			continue
@@ -101,9 +112,9 @@ func Reduce(events []Event) (*Machine, error) {
 }
 
 var allowed = map[State]map[State]bool{
-	Request: {Understand: true}, Understand: {Assess: true}, Assess: {Plan: true, Ask: true, Blocked: true},
-	Plan: {Context: true}, Context: {Dispatch: true}, Dispatch: {Execute: true}, Execute: {Observe: true},
-	Observe: {Verify: true}, Verify: {Evaluate: true}, Evaluate: {Supervise: true}, Supervise: {Decide: true},
+	Request: {Understand: true, Blocked: true, Stopped: true}, Understand: {Assess: true, Blocked: true, Stopped: true}, Assess: {Plan: true, Ask: true, Blocked: true, Stopped: true},
+	Plan: {Context: true, Blocked: true, Stopped: true}, Context: {Dispatch: true, Blocked: true, Stopped: true}, Dispatch: {Execute: true, Blocked: true, Stopped: true}, Execute: {Observe: true, Blocked: true, Stopped: true},
+	Observe: {Verify: true, Blocked: true, Stopped: true}, Verify: {Evaluate: true, Blocked: true, Stopped: true}, Evaluate: {Supervise: true, Blocked: true, Stopped: true}, Supervise: {Decide: true, Blocked: true, Stopped: true},
 	Decide:   {Continue: true, Correct: true, Replan: true, Verify: true, Ask: true, Approve: true, Blocked: true, Stopped: true, Complete: true},
 	Continue: {Dispatch: true}, Correct: {Context: true}, Replan: {Plan: true}, Ask: {Approve: true, Stopped: true},
 	Approve: {Dispatch: true, Stopped: true}, Blocked: {Ask: true, Stopped: true}, Stopped: {}, Complete: {},
@@ -123,6 +134,10 @@ func (m *Machine) transitionAt(to State, reason string, at time.Time) error {
 }
 
 func (m *Machine) ApplyDecision(d Decision, reason string) error {
+	return m.applyDecisionAt(d, reason, time.Now().UTC())
+}
+
+func (m *Machine) applyDecisionAt(d Decision, reason string, at time.Time) error {
 	var target State
 	switch d {
 	case ContinueDecision:
@@ -146,16 +161,14 @@ func (m *Machine) ApplyDecision(d Decision, reason string) error {
 	default:
 		return fmt.Errorf("unsupported decision %q", d)
 	}
-	return m.TransitionTo(target, reason)
+	return m.transitionAt(target, reason, at)
 }
 
 func (m *Machine) NextAction(risk string, allowed bool, reason string) domain.NextAction {
-	typeName := string(m.State)
-	if m.State == Decide {
-		typeName = string(ContinueDecision)
-	}
-	if m.Terminal() {
-		typeName = string(CompleteDecision)
+	next := map[State]string{Request: string(Understand), Understand: string(Assess), Assess: string(Plan), Plan: string(Context), Context: string(Dispatch), Dispatch: string(Execute), Execute: string(Observe), Observe: string(Verify), Verify: string(Evaluate), Evaluate: string(Supervise), Supervise: string(Decide), Decide: string(ContinueDecision), Continue: string(Dispatch), Correct: string(Context), Replan: string(Plan), Ask: string(Approve), Approve: string(Dispatch), Blocked: string(Ask), Stopped: string(StopDecision), Complete: string(CompleteDecision)}
+	typeName := next[m.State]
+	if typeName == "" {
+		typeName = string(m.State)
 	}
 	h := sha256.Sum256([]byte(string(m.State) + "\x00" + reason))
 	return domain.NextAction{ID: "ACT-" + hex.EncodeToString(h[:6]), Type: typeName, Reason: reason, Risk: risk, Allowed: allowed, RequiresApproval: !allowed}

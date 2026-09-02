@@ -14,3 +14,15 @@ func TestDestructiveActionsAreGated(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandPolicyRejectsWorkspaceEscapeAndDestructiveCommands(t *testing.T) {
+	if d := Command([]string{"git", "reset", "--hard"}, "/workspace"); d.Allowed || !d.RequiresApproval {
+		t.Fatalf("destructive command was allowed: %+v", d)
+	}
+	if d := Command([]string{"tool", "/tmp/outside"}, "/workspace"); d.Allowed || d.Decision != "BLOCK" {
+		t.Fatalf("workspace escape was allowed: %+v", d)
+	}
+	if d := CommandWithApproval([]string{"git", "reset", "--hard"}, "/workspace", true); !d.Allowed || !d.RequiresApproval {
+		t.Fatalf("explicit approval did not authorize command: %+v", d)
+	}
+}

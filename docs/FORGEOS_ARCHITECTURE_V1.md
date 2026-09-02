@@ -6,13 +6,24 @@ ForgeOS is a persistent, project-aware engineering control plane that converts n
 
 Supported requests include new products, features, bug fixes, UI improvements, refactors, integrations, version work, reviews, QA, security work, release preparation/execution, continuation and recovery.
 
-## 2. North-star principle
+## 2. North-star principles
 
-> Minimum unnecessary tokens and tool work while preserving maximum necessary understanding, reasoning, verification and quality.
+> **Minimum unnecessary tokens and tool work while preserving maximum necessary understanding, reasoning, verification and quality.**
 
 Optimization must never weaken a required quality or release gate.
 
-## 3. Core architecture
+Additional invariants:
+
+1. **The agent is disposable; project state is not.**
+2. **The system is adaptive; workflows are selected, not hard-coded per request type.**
+3. **Context is progressive, never artificially compressed below semantic sufficiency.**
+4. **Tasks are coherent engineering slices, not arbitrary micro-tasks.**
+5. **Deterministic work is delegated to deterministic tooling.**
+6. **Evidence is durable and reusable when its validity scope remains intact.**
+7. **No consequential release decision is based solely on an LLM assertion.**
+8. **User changes and requirements changes are never silently discarded or rewritten.**
+
+## 3. System architecture
 
 ```text
 USER REQUEST
@@ -24,11 +35,34 @@ USER REQUEST
     -> AGENT WORKERS <-> DETERMINISTIC TOOLS
     -> EVIDENCE ENGINE
     -> QUALITY GATE
-       PASS -> CHECKPOINT / VERSION / RELEASE
+       PASS -> CHECKPOINT / NEXT WORK / VERSION / RELEASE
        FAIL -> DIAGNOSE -> REPLAN
+       BLOCKED -> ESCALATE / WAIT / RETRY
 ```
 
-The agent is a replaceable worker. Durable project state belongs to ForgeOS.
+ForgeOS is composed of five logical planes:
+
+### Control plane
+
+Owns lifecycle, state transitions, scheduling, retries, policy, permissions and release decisions.
+
+### Knowledge plane
+
+Owns project facts, requirements, architecture, decisions, assumptions, traceability and relevant repository structure.
+
+### Execution plane
+
+Runs agent workers and deterministic tools in isolated, observable jobs.
+
+### Evidence plane
+
+Stores normalized test/build/browser/security/data/Git evidence and validity metadata.
+
+### Artifact plane
+
+Stores large logs, screenshots, traces, reports, patches and other artifacts outside normal model context.
+
+The first implementation may colocate these planes in one service/repository, but the contracts should keep them logically separate.
 
 ## 4. Durable project state
 
@@ -53,139 +87,771 @@ Each managed repository gets a `.forge/` control plane:
 
 Human-readable authoritative specifications remain under `docs/`; machine-oriented state belongs under `.forge/`.
 
-The state graph links requirements, architecture decisions, code changes, tests, evidence, versions and releases, plus dependencies, risks, assumptions, blockers and integrations.
+ForgeOS should preserve a stable separation between **desired state**, **observed state** and **derived state**:
 
-A vector database is not a V1 requirement. Start with structured state, filesystem/document retrieval, repository analysis, AST and dependency information. Add semantic indexing only when retrieval evidence justifies it.
+```text
+Desired:
+  requirements / roadmap / policies
 
-## 5. Intent and workflow
+Observed:
+  repository / tests / browser / runtime / Git / data
 
-Every request becomes a durable work order before substantial execution. The resolver determines change class, affected version/domain, dependencies, risk, autonomy and validation needs.
+Derived:
+  impact / risk / task graph / release readiness
+```
 
-Conceptual work order:
+Derived state must be recomputable. It must not become the sole source of truth.
+
+## 5. Project state graph
+
+The state graph links engineering facts rather than merely storing documents.
+
+```text
+Requirement
+   |
+   +--> Decision
+   +--> Architecture element
+   +--> Code area
+   +--> Test set
+   +--> Evidence
+   +--> Work order
+   +--> Version
+   +--> Release
+```
+
+It should also represent:
+
+- dependencies;
+- ownership/actor;
+- risk;
+- assumptions;
+- blockers;
+- external integrations;
+- evidence validity;
+- supersession/history.
+
+A vector database is not a V1 requirement. Start with structured state, repository analysis, AST/dependency information, exact search and document section retrieval. Add semantic indexing only when measured retrieval failures justify it.
+
+## 6. Request normalization / work orders
+
+Every user request becomes a durable work order before substantial execution.
+
+Conceptual shape:
 
 ```yaml
 id: WO-...
-type: AUTO
 request: "Add feature X"
+change_type: FEATURE
 priority: normal
-quality: production
+quality_target: production
 autonomy: high
+affected_version: 1.1.0
 status: PLANNED
 ```
 
-The planner selects only the states needed for the request. A small bug fix must not traverse a greenfield product workflow; a release must not bypass required gates.
+The resolver determines:
 
-Execution states:
+- request/change class;
+- affected product area;
+- target version/release;
+- dependencies;
+- risk;
+- user-visible impact;
+- likely task size;
+- required questions;
+- required validation;
+- external capabilities/dependencies.
+
+The normalized request must retain the original user wording. ForgeOS must never replace the original intent with an internally generated paraphrase without preserving the source request.
+
+## 7. Consequential clarification policy
+
+ForgeOS should ask the user only when an unresolved decision can materially alter:
+
+- architecture;
+- security/privacy;
+- legal/licensing;
+- significant cost;
+- irreversible schema/data behavior;
+- externally visible product behavior where no safe default exists.
+
+Otherwise:
 
 ```text
-INTAKE -> DISCOVERY -> CLARIFICATION -> SPECIFICATION -> ARCHITECTURE
-       -> DATA_FOUNDATION -> PLANNING -> IMPLEMENTATION
-       -> FEATURE_VALIDATION -> INTEGRATION -> SECURITY
-       -> SYSTEM_QA -> RELEASE_CANDIDATE -> RELEASED -> MAINTENANCE
+choose safe/default decision
+        -> record assumption
+        -> continue
 ```
 
-`CLARIFICATION`, `DATA_FOUNDATION`, `SECURITY` and other stages are conditional. Failure may enter `BLOCKED`, `RECOVERING` or `REPLAN` without losing evidence.
+Every assumption should include:
 
-## 6. Human escalation
+- statement;
+- basis;
+- confidence;
+- reversible/irreversible classification;
+- affected work order;
+- supersession status.
 
-Ask the user only when ambiguity can materially change a consequential outcome: architecture, security/privacy, legal/licensing, significant cost, irreversible data/schema behavior, or externally visible behavior where no safe default exists.
+When an assumption becomes invalid, ForgeOS should perform impact analysis rather than silently continuing with stale assumptions.
 
-Otherwise select a reasonable default, record it as an assumption, and continue.
+## 8. Adaptive execution graph
 
-## 7. Context compiler
+Execution is a graph selected per work order, not a mandatory linear pipeline.
+
+Possible states:
+
+```text
+INTAKE
+  -> DISCOVERY
+  -> CLARIFICATION
+  -> SPECIFICATION
+  -> ARCHITECTURE
+  -> DATA_FOUNDATION
+  -> PLANNING
+  -> IMPLEMENTATION
+  -> FEATURE_VALIDATION
+  -> INTEGRATION
+  -> SECURITY
+  -> SYSTEM_QA
+  -> RELEASE_CANDIDATE
+  -> RELEASED
+  -> MAINTENANCE
+```
+
+Conditional states may be skipped when not relevant. The planner must record why a state was skipped when that state would normally be expected for the change type.
+
+Failure/control states:
+
+```text
+FAILED
+BLOCKED
+RECOVERING
+REPLAN_REQUIRED
+CANCELLED
+```
+
+Terminal success must be based on evidence and gate evaluation, not worker self-report.
+
+## 9. Task sizing
+
+ForgeOS must optimize for **coherent context**, not minimum task size.
+
+Recommended heuristic:
+
+- **Atomic:** isolated, low-risk change.
+- **Vertical slice:** one coherent capability crossing relevant layers.
+- **Milestone:** several strongly related slices with shared dependencies.
+
+Split work when context, risk or dependencies become unwieldy—not simply because a file boundary exists.
+
+Merge adjacent tasks when splitting them would force repeated context loading and prevent the agent from reasoning about the feature as a whole.
+
+The scheduler should estimate:
+
+- complexity;
+- dependency depth;
+- affected files/subsystems;
+- security/data impact;
+- test surface;
+- expected duration.
+
+## 10. Context compiler
 
 Context is progressive and elastic.
 
-**Core context:** project identity, version, current state, active work order, immutable principles, blockers and acceptance criteria.
+### Tier A — invariant context
 
-**Relevant context:** affected requirements, architecture, decisions, assumptions, source files, tests, security constraints and relevant evidence.
+Always include:
 
-**On-demand context:** large historical documents, unrelated subsystems, old releases and detailed artifacts.
+- project identity;
+- current version;
+- current phase/state;
+- active work order;
+- immutable project principles;
+- release policy relevant to the work;
+- active blockers;
+- mandatory constraints.
 
-Retrieval follows dependency and traceability relationships rather than a static list of every project document. Large tool output stays outside model context and is summarized into structured evidence.
+### Tier B — task context
 
-## 8. Agent workers
+Include:
 
-Workers sit behind an adapter boundary and may include implementation, architecture, debugging, review, security, data, testing, release and documentation roles.
+- directly affected requirements;
+- relevant architecture elements;
+- decisions and assumptions;
+- affected source paths;
+- associated tests;
+- applicable security/data constraints;
+- relevant recent changes;
+- valid prior evidence.
 
-Model selection is task-aware. Stronger reasoning models are used where complexity or risk warrants them; faster/cheaper workers handle routine execution and summarization. Quality gates remain model-independent.
+### Tier C — expansion context
 
-## 9. Deterministic tools
+Retrieved on demand:
 
-ForgeOS delegates deterministic work to deterministic tooling: typecheck, lint, unit/integration tests, schema/config/data validation, duplicate detection, dependency analysis, builds, PWA checks, browser automation, security scanners, migrations and Git operations.
+- adjacent subsystems;
+- historical rationale;
+- old release documentation;
+- detailed artifacts;
+- large source sections not initially required.
 
-Tool output is normalized into compact evidence records rather than dumped into agent context.
+The compiler should return provenance for each injected context item so an agent can distinguish:
 
-## 10. Risk-based validation
+- requirement;
+- observed code fact;
+- prior decision;
+- assumption;
+- derived recommendation.
 
-Risk considers security, data, API, UI, migration, external dependency and release impact.
+Context must not silently mix factual requirements with speculative suggestions.
 
-Validation tiers:
+## 11. Context budget and context integrity
 
-- **Tier 0:** static/offline checks.
-- **Tier 1:** affected unit/integration tests.
-- **Tier 2:** targeted browser journeys.
-- **Tier 3:** milestone/system regression.
-- **Tier 4:** complete release audit.
+ForgeOS should monitor context composition and cost, but it must never optimize solely for token minimization.
 
-Risk determines the minimum sufficient validation during development. Explicit release gates remain mandatory.
+A context packet should expose:
 
-## 11. Browser evidence
+```yaml
+context:
+  estimated_tokens: 12000
+  required_items: 31
+  optional_items: 8
+  expandable_items: 14
+  requirement_coverage: 1.0
+```
 
-Browser automation should primarily produce assertions, route/state checks, console-error counts, network-failure counts and accessibility checks. Screenshots, DOM snapshots and traces are captured for visual checkpoints and failures rather than indiscriminately on every run.
+The system should reject an aggressively compressed packet when the required semantic coverage would be lost.
 
-## 12. Evidence model
+Context summaries must be derived from canonical project state. They are caches, not authorities.
 
-Evidence is durable state and should be linked to work orders, requirements, commits and releases where possible.
+## 12. Agent workers
+
+Workers sit behind a provider-independent adapter.
+
+Potential roles:
+
+- planner;
+- implementation;
+- debugging;
+- architecture;
+- code review;
+- security;
+- data;
+- test analysis;
+- release analysis;
+- documentation.
+
+Workers receive a typed work packet containing:
+
+- work order;
+- context packet;
+- constraints;
+- expected outputs;
+- allowed tools;
+- quality target;
+- checkpoint reference.
+
+The worker must return structured results, not only prose.
+
+Example:
 
 ```json
 {
-  "test": "feature-flow",
-  "status": "PASS",
-  "assertions": 22,
-  "consoleErrors": 0,
-  "networkFailures": 0,
-  "durationMs": 4312
+  "status": "NEEDS_VALIDATION",
+  "changes": ["src/claims/api.ts"],
+  "decisions": [],
+  "questions": [],
+  "tests_requested": ["claims-stateful"],
+  "blockers": []
 }
 ```
 
-Previously valid evidence should be reused when its scope and inputs remain valid; ForgeOS should not rerun expensive checks without a reason.
+## 13. Model routing
 
-## 13. Recovery
+Model choice is an orchestration policy.
 
-Execution outcomes include `SUCCESS`, `FAILED`, `BLOCKED` and `CONTEXT_EXHAUSTED`.
+The router may consider:
 
-Recovery procedure:
+- task type;
+- risk;
+- repository size;
+- context size;
+- required tool-use reliability;
+- latency/cost limits;
+- previous worker performance;
+- provider availability.
 
-1. Persist checkpoint.
-2. Record completed work and unresolved reasoning.
-3. Preserve working-tree changes and evidence.
-4. Rebuild minimal required context.
-5. Select another capable worker/model when necessary.
-6. Resume from checkpoint.
+Model choice must not bypass quality gates.
 
-The same mechanism handles model switches, quota exhaustion, tool failures, crashes and interrupted sessions.
+Model switching is safe only at a persisted checkpoint boundary or after reconstructable execution state has been captured.
 
-## 14. Requirements and traceability
+## 14. Deterministic tools
 
-User-requested changes are logged separately from implementation details. Consequential work maintains:
+Delegate deterministic work to deterministic tooling:
 
-```text
-request -> requirement/change -> decision -> work order
-        -> code -> tests -> evidence -> version -> release
+- typecheck;
+- lint;
+- unit/integration tests;
+- schema/config/data validation;
+- duplicate detection;
+- dependency analysis;
+- builds;
+- PWA checks;
+- browser automation;
+- accessibility checks;
+- security scanners;
+- migration verification;
+- Git operations.
+
+Each tool invocation should produce a normalized result:
+
+```yaml
+id: TOOL-...
+tool: playwright
+status: PASS
+exit_code: 0
+duration_ms: 4312
+artifact_refs:
+  - browser/run-184.json
+summary:
+  assertions: 22
+  console_errors: 0
+  network_failures: 0
 ```
 
-This prevents later agents from confusing original requirements with assumptions or implementation choices.
+Raw output belongs in artifacts unless needed for diagnosis.
 
-## 15. Versioning and releases
+## 15. Impact analysis
 
-Versions are explicit ForgeOS state as well as Git references. A release candidate records resolved requirements, blocker disposition, implementation state, test/security/browser/build/data evidence, changelog, commit/reference and release decision.
+Before changing code, ForgeOS should attempt to determine:
 
-Release gates are predefined by project policy. Agents must not invent unrelated blocking criteria during a final audit. Findings should be classified by severity (for example P0/P1 release blockers versus P2/P3 hardening) to prevent endless audit loops.
+```text
+changed/requested behavior
+        ↓
+requirements
+        ↓
+architecture
+        ↓
+source/dependency graph
+        ↓
+tests
+        ↓
+security/data/release gates
+```
 
-Git integration tracks branch, base revision, changed files, work-order commits, tags, working-tree state and relevant migration state. ForgeOS must never silently discard user changes.
+Impact analysis should produce:
 
-## 16. V1 implementation boundary
+- affected requirements;
+- affected code;
+- affected data/schema;
+- affected tests;
+- affected security surfaces;
+- affected external integrations;
+- affected releases.
+
+If confidence is low, expand context or request a review rather than pretending precision.
+
+## 16. Risk engine
+
+Risk dimensions include:
+
+- security;
+- data integrity;
+- API behavior;
+- UI behavior;
+- migration;
+- external dependency;
+- privacy;
+- release impact.
+
+Risk produces a **validation plan**, not merely a number.
+
+Example:
+
+```yaml
+risk: HIGH
+validation:
+  tier0: required
+  tier1: required
+  tier2: required
+  tier3: conditional
+  security_review: required
+```
+
+## 17. Validation tiers
+
+### Tier 0 — static/offline
+
+Cheap deterministic checks:
+
+- schema;
+- config;
+- typecheck;
+- lint;
+- route checks;
+- data structure validation;
+- import determinism.
+
+### Tier 1 — affected tests
+
+Relevant unit/integration tests selected by dependency and traceability analysis.
+
+### Tier 2 — targeted browser
+
+Relevant Playwright journeys for browser-facing changes.
+
+### Tier 3 — milestone regression
+
+Broader subsystem/application regression at milestone boundaries.
+
+### Tier 4 — release audit
+
+Complete release gates defined by project policy.
+
+Risk-based selection can reduce development-time work. It cannot weaken explicit release gates.
+
+## 18. Test selection
+
+Test selection should be graph-based:
+
+```text
+changed files / behavior
+        ↓
+affected requirements
+        ↓
+affected test nodes
+        ↓
+minimal sufficient validation set
+```
+
+The selected set must include transitive dependencies where required.
+
+The selection result should record why each test was chosen and which tests were intentionally skipped.
+
+## 19. Browser evidence
+
+Browser automation primarily produces:
+
+- assertions;
+- route/state checks;
+- console error counts;
+- network failure counts;
+- accessibility checks;
+- structured results.
+
+Screenshots/DOM snapshots/traces are captured for:
+
+- visual checkpoints;
+- failures;
+- explicit review requests.
+
+Normal successful runs should return concise evidence summaries while retaining detailed artifacts for retrieval.
+
+## 20. Evidence model
+
+Evidence is durable project state.
+
+Conceptual record:
+
+```yaml
+id: EV-...
+type: browser_test
+work_order: WO-...
+requirements:
+  - R-CLAIM-04
+commit: abc123
+status: PASS
+created_at: ...
+validity:
+  inputs_hash: ...
+  environment_hash: ...
+  expires_at: null
+artifacts:
+  - browser/EV-93.json
+```
+
+Evidence must have validity semantics. ForgeOS should reuse prior evidence only when the relevant inputs, environment and scope remain valid.
+
+Examples of invalidation triggers:
+
+- affected code changed;
+- dependency version changed;
+- relevant requirement changed;
+- schema changed;
+- environment assumption changed;
+- security policy changed;
+- evidence TTL expired.
+
+## 21. Checkpointing and recovery
+
+A checkpoint is a durable continuation contract.
+
+Conceptual shape:
+
+```yaml
+checkpoint:
+  id: CP-...
+  work_order: WO-...
+  state: FEATURE_VALIDATION
+  completed:
+    - implementation
+    - tier0
+    - tier1
+  pending:
+    - tier2
+  changed_files:
+    - src/...
+  commit: abc123
+  context_manifest: ctx-...
+  unresolved_questions: []
+  blockers: []
+```
+
+For context/quota exhaustion:
+
+1. persist checkpoint;
+2. persist worker output;
+3. persist uncommitted-change state;
+4. persist tool/evidence references;
+5. produce unresolved-reasoning summary;
+6. rebuild context from project state + checkpoint;
+7. select replacement worker/model;
+8. resume from the pending state.
+
+The recovery process must be deterministic enough that a second worker can continue without requiring the original conversation.
+
+## 22. Failure and retry policy
+
+Not every failure should trigger an immediate retry.
+
+Classify failures:
+
+```text
+TRANSIENT_TOOL_FAILURE
+MODEL_FAILURE
+CONTEXT_EXHAUSTION
+VALIDATION_FAILURE
+LOGIC_FAILURE
+REQUIREMENT_AMBIGUITY
+EXTERNAL_BLOCKER
+SECURITY_BLOCKER
+```
+
+Each class has a different policy:
+
+- transient → bounded retry;
+- model/context → checkpoint + replacement;
+- validation → diagnose + targeted repair;
+- ambiguity → ask user or use documented default;
+- external blocker → wait/escalate;
+- security blocker → stop affected execution path.
+
+Retries must have budgets and must not create uncontrolled agent loops.
+
+## 23. Human-in-the-loop policy
+
+Human interaction is an exception path, not the normal execution mode.
+
+Ask only for consequential uncertainty.
+
+Human approval may also be required by policy for explicitly gated actions such as:
+
+- irreversible production migration;
+- production credential changes;
+- destructive data operations;
+- releasing a major version;
+- high-risk security exceptions.
+
+Do not infer approval from silence.
+
+## 24. Requirements and change management
+
+Requirements are first-class entities.
+
+Every material user-requested change should preserve:
+
+```text
+original request
+  -> requirement/change
+  -> decision
+  -> impact analysis
+  -> work order
+  -> code
+  -> tests
+  -> evidence
+  -> version
+  -> release
+```
+
+Requirement changes should record:
+
+- original statement;
+- proposed new statement;
+- reason;
+- impact;
+- affected versions;
+- approval when required;
+- supersession relationship.
+
+Implementation details must not silently rewrite requirements.
+
+## 25. Release policy and anti-loop mechanism
+
+Every release has predefined blocking criteria.
+
+Findings are classified:
+
+- **P0:** catastrophic/security/data-loss blocker;
+- **P1:** explicit release requirement blocker;
+- **P2:** important hardening, non-blocking unless policy says otherwise;
+- **P3:** future improvement/debt.
+
+The final auditor may identify violations of existing requirements, security policy or explicit release criteria. It must not manufacture new P1 criteria simply because another test or enhancement could exist.
+
+A release can proceed when all required P0/P1 gates pass and documented P2/P3 items have explicit disposition.
+
+## 26. Git integration
+
+ForgeOS tracks:
+
+- repository identity;
+- branch;
+- base revision;
+- working-tree state;
+- changed files;
+- work-order commits;
+- tags;
+- release references;
+- migration state where applicable.
+
+ForgeOS must never silently discard user changes.
+
+Protected operations require explicit policy:
+
+- no force-push by default;
+- no destructive reset of user work;
+- no release tag until release gate passes;
+- no commit containing secrets or protected artifacts.
+
+## 27. Security boundaries
+
+ForgeOS must distinguish:
+
+**planner authority**
+from
+**execution authority**
+from
+**release authority**.
+
+A planning agent should not automatically gain unrestricted production access.
+
+Tool permissions should be capability-scoped per work order.
+
+Example:
+
+```yaml
+allowed_tools:
+  - read_repo
+  - edit_repo
+  - test
+  - browser
+  - git_commit
+forbidden_tools:
+  - production_shell
+  - credential_read
+  - force_push
+```
+
+High-risk tools/actions require explicit policy and potentially human approval.
+
+Secrets must never be injected into ordinary model context unless strictly required by an authorized operation; prefer opaque environment/runtime references.
+
+## 28. Artifact and context separation
+
+Large outputs should live outside normal model context:
+
+```text
+.artifacts/
+├── tests/
+├── browser/
+├── security/
+├── data/
+├── builds/
+├── logs/
+└── releases/
+```
+
+Model context receives compact summaries and references. Detailed artifacts are fetched only when diagnostic reasoning needs them.
+
+## 29. Observability and cost accounting
+
+Track per work order and per run:
+
+- context tokens;
+- agent tokens;
+- tool-output tokens;
+- model;
+- files read;
+- files changed;
+- browser duration;
+- test duration;
+- retries;
+- model switches;
+- wall-clock duration;
+- estimated cost.
+
+Optimize for:
+
+> **validated engineering outcome per total cost and elapsed time.**
+
+Do not optimize raw token count at the expense of semantic coverage or validation quality.
+
+## 30. Project handoff / portability
+
+Any agent or machine must be able to resume from the repository and ForgeOS state alone.
+
+A handoff packet should include:
+
+- current state;
+- active work order;
+- latest checkpoint;
+- relevant context manifest;
+- blockers;
+- last successful evidence;
+- pending validations;
+- required tools/models;
+- working-tree/commit state.
+
+No critical knowledge may exist only in a chat transcript.
+
+## 31. Reference implementation strategy
+
+Losal is the first reference project because it exercises:
+
+- real data;
+- CMS workflows;
+- security;
+- stateful tests;
+- browser QA;
+- provenance;
+- versioning;
+- release gates;
+- model/context/tool failure recovery.
+
+ForgeOS core contracts must remain independent of Losal-specific technologies or domain assumptions.
+
+Reference validation scenarios should include:
+
+1. Continue interrupted work.
+2. Switch models after context exhaustion.
+3. Add a feature with cross-layer changes.
+4. Fix a bug with targeted validation.
+5. Perform a security-sensitive change.
+6. Prepare a release candidate.
+7. Reject a release because of an actual P1 blocker.
+8. Avoid rejecting a release because of a non-blocking P2/P3 finding.
+
+## 32. V1 implementation boundary
 
 Build the smallest reliable control plane containing:
 
@@ -198,10 +864,69 @@ Build the smallest reliable control plane containing:
 7. Playwright adapter;
 8. evidence store;
 9. Git integration;
-10. adaptive planner and basic quality gates.
+10. adaptive planner;
+11. impact/risk analysis;
+12. release gates.
 
-Do not begin with a giant multi-agent swarm, mandatory vector DB, custom model, complex UI, social collaboration layer or automatic irreversible production actions without gates.
+The implementation must establish stable contracts before adding a complex UI or multi-agent swarm.
 
-## 17. Reference validation
+## 33. Initial machine contracts
 
-Losal is the first real reference project. It validates ForgeOS against a production-style repository with real data, CMS workflows, security controls, browser QA and release gates. ForgeOS core contracts must remain independent of Losal-specific technology or domain assumptions.
+The first implementation should define typed schemas/interfaces for at least:
+
+```text
+ProjectState
+Requirement
+Decision
+Assumption
+WorkOrder
+WorkPacket
+Checkpoint
+ToolRun
+Evidence
+RiskAssessment
+ValidationPlan
+ReleaseCandidate
+ReleaseDecision
+```
+
+These contracts should be versioned and backward-compatible where practical.
+
+## 34. Non-goals for V1
+
+Do not begin with:
+
+- a giant autonomous multi-agent swarm;
+- mandatory vector search;
+- a custom model;
+- complex collaboration/social features;
+- unrestricted production access;
+- automatic irreversible actions without gates;
+- a fixed workflow that assumes every request is a greenfield application.
+
+## 35. V1 acceptance criteria
+
+ForgeOS V1 is not complete until a reference project can demonstrate:
+
+- create/ingest project state;
+- normalize multiple request types;
+- generate a coherent work order;
+- compile task-specific context without loading all project documentation;
+- expand context on demand;
+- select risk-appropriate validation;
+- execute a coding worker through a provider adapter;
+- normalize deterministic tool output;
+- persist evidence;
+- resume after context/quota interruption;
+- switch models/workers without losing project state;
+- select targeted tests from impact analysis;
+- run Playwright through a controlled adapter;
+- maintain requirement-to-release traceability;
+- preserve user changes;
+- enforce capability-scoped tool access;
+- distinguish P0/P1 blockers from P2/P3 improvements;
+- produce a release decision from explicit evidence.
+
+## 36. Engineering north star
+
+> **Give each worker enough context to make the right decision, give the system enough state to survive without that worker, and spend expensive computation only where it increases verified confidence.**

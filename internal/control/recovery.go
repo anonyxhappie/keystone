@@ -6,9 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/anonyxhappie/keystone/v2/internal/domain"
-	"github.com/anonyxhappie/keystone/v2/internal/runtime"
-	"github.com/anonyxhappie/keystone/v2/internal/state"
+	"github.com/anonyxhappie/keystone/internal/domain"
+	"github.com/anonyxhappie/keystone/internal/runtime"
+	"github.com/anonyxhappie/keystone/internal/state"
 )
 
 // RecoverSnapshot reconstructs the materialized cache from the event journal.

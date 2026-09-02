@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/anonyxhappie/keystone/v2/internal/domain"
+	"github.com/anonyxhappie/keystone/internal/domain"
 )
 
 func TestCodexAdapterNormalizesJSONLEventsAndUsage(t *testing.T) {

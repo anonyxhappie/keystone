@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anonyxhappie/keystone/v2/internal/domain"
-	"github.com/anonyxhappie/keystone/v2/internal/project"
-	"github.com/anonyxhappie/keystone/v2/internal/runtime"
+	"github.com/anonyxhappie/keystone/internal/domain"
+	"github.com/anonyxhappie/keystone/internal/project"
+	"github.com/anonyxhappie/keystone/internal/runtime"
 )
 
 const Dir = ".keystone"

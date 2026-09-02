@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/anonyxhappie/keystone/v2/internal/domain"
+	"github.com/anonyxhappie/keystone/internal/domain"
 )
 
 // State is the canonical lifecycle state shared by every Keystone version.

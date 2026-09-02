@@ -1,3 +1,3 @@
-module github.com/anonyxhappie/keystone/v2
+module github.com/anonyxhappie/keystone
 
 go 1.23

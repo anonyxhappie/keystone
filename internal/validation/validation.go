@@ -1,6 +1,6 @@
 package validation
 
-import "github.com/anonyxhappie/keystone/v2/internal/domain"
+import "github.com/anonyxhappie/keystone/internal/domain"
 
 type Plan struct {
 	Tier   int

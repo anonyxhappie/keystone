@@ -4,8 +4,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anonyxhappie/keystone/v2/internal/domain"
-	"github.com/anonyxhappie/keystone/v2/internal/state"
+	"github.com/anonyxhappie/keystone/internal/domain"
+	"github.com/anonyxhappie/keystone/internal/state"
 )
 
 func RecordScoped(s state.Store, workOrder, kind, summary, commit, inputsHash string, observationIDs []string, passed bool) (domain.Evidence, error) {

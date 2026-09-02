@@ -9,7 +9,7 @@ Keystone does not replace the harness. It maintains durable project state, compi
 ## V2 quick start
 
 ```bash
-go install github.com/anonyxhappie/keystone/v2/cmd/keystone@v2.0.1
+go install github.com/anonyxhappie/keystone/cmd/keystone@latest
 cd your-project
 keystone init
 keystone status

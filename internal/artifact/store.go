@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/anonyxhappie/keystone/v2/internal/domain"
-	"github.com/anonyxhappie/keystone/v2/internal/state"
+	"github.com/anonyxhappie/keystone/internal/domain"
+	"github.com/anonyxhappie/keystone/internal/state"
 )
 
 func SaveText(s state.Store, kind, text string) (domain.Artifact, error) {

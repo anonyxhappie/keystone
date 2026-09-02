@@ -3,7 +3,7 @@ package harness
 import (
 	"errors"
 
-	"github.com/anonyxhappie/keystone/v2/internal/domain"
+	"github.com/anonyxhappie/keystone/internal/domain"
 )
 
 type Adapter interface {

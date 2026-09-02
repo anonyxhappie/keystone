@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/anonyxhappie/keystone/v2/internal/domain"
+	"github.com/anonyxhappie/keystone/internal/domain"
 )
 
 type Config struct {

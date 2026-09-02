@@ -1,7 +1,7 @@
 package state
 
 import (
-	"github.com/anonyxhappie/keystone/v2/internal/domain"
+	"github.com/anonyxhappie/keystone/internal/domain"
 	"os"
 	"testing"
 )

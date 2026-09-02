@@ -15,7 +15,7 @@ Hardened completion of Keystone V2 engine, supervisor, and real headless harness
 
 ## 2.0.1
 
-Correct the Go module path and package installation path for the V2 major release. The module is now published as `github.com/anonyxhappie/keystone/v2`, with matching internal imports and installation documentation.
+Correct the Go module path and package installation path for the V2 major release. The module is now published as `github.com/anonyxhappie/keystone`, with matching internal imports and installation documentation.
 
 ## 2.0.0
 

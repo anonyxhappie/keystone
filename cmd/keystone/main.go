@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/anonyxhappie/keystone/internal/context"
+	"github.com/anonyxhappie/keystone/internal/domain"
 	"github.com/anonyxhappie/keystone/internal/harness"
 	"github.com/anonyxhappie/keystone/internal/project"
 	"github.com/anonyxhappie/keystone/internal/state"
@@ -64,15 +65,10 @@ func runContinue(root string) {
 }
 
 func runValidate(root string) {
-	var p struct { Capabilities []struct { Kind, Name string } `json:"capabilities"` }
+	var p domain.Project
 	if err := state.New(root).Read("project.json", &p); err != nil { fatal(err) }
-	caps := make([]projectCapability, len(p.Capabilities)); for i, c := range p.Capabilities { caps[i] = projectCapability{Kind:c.Kind,Name:c.Name} }
-	plan := validation.PlanFor(struct{Level string}{Level:"low"}, convertCapabilities(caps))
+	plan := validation.PlanFor(domain.Risk{Level:"low"}, p.Capabilities)
 	fmt.Printf("Validation tier %d: %s\n", plan.Tier, strings.Join(plan.Checks, ", "))
 }
-
-type projectCapability struct { Kind, Name string }
-func convertCapabilities(in []projectCapability) []domainCapability { out:=make([]domainCapability,len(in)); for i,c:=range in { out[i]=domainCapability{Kind:c.Kind,Name:c.Name} }; return out }
-type domainCapability = project.Capability
 
 func fatal(err error) { fmt.Fprintln(os.Stderr, "keystone:", err); os.Exit(1) }

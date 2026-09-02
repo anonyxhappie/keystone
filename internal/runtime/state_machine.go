@@ -170,8 +170,12 @@ func (m *Machine) NextAction(risk string, allowed bool, reason string) domain.Ne
 	if typeName == "" {
 		typeName = string(m.State)
 	}
+	policyDecision := "ALLOW"
+	if !allowed {
+		policyDecision = "REQUIRE_APPROVAL"
+	}
 	h := sha256.Sum256([]byte(string(m.State) + "\x00" + reason))
-	return domain.NextAction{ID: "ACT-" + hex.EncodeToString(h[:6]), Type: typeName, Reason: reason, Risk: risk, Allowed: allowed, RequiresApproval: !allowed}
+	return domain.NextAction{ID: "ACT-" + hex.EncodeToString(h[:6]), Type: typeName, Reason: reason, Target: typeName, Risk: risk, PolicyDecision: policyDecision, Allowed: allowed, RequiresApproval: !allowed}
 }
 
 func (m *Machine) Terminal() bool { return m.State == Complete || m.State == Stopped }

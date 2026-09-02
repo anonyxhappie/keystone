@@ -53,17 +53,19 @@ type resumeInput struct {
 	Snapshot state.Snapshot
 }
 type Report struct {
-	RunID           string              `json:"runId"`
-	WorkOrderID     string              `json:"workOrderId"`
-	State           runtime.State       `json:"state"`
-	NextAction      domain.NextAction   `json:"nextAction"`
-	Findings        []domain.Finding    `json:"findings,omitempty"`
-	EvidenceIDs     []string            `json:"evidenceIds,omitempty"`
-	ChangedFiles    []string            `json:"changedFiles,omitempty"`
-	ContextManifest string              `json:"contextManifest,omitempty"`
-	Validations     []validation.Result `json:"validations,omitempty"`
-	Attempts        int                 `json:"attempts"`
-	Error           string              `json:"error,omitempty"`
+	RunID            string              `json:"runId"`
+	WorkOrderID      string              `json:"workOrderId"`
+	HarnessID        string              `json:"harnessId,omitempty"`
+	HarnessSessionID string              `json:"harnessSessionId,omitempty"`
+	State            runtime.State       `json:"state"`
+	NextAction       domain.NextAction   `json:"nextAction"`
+	Findings         []domain.Finding    `json:"findings,omitempty"`
+	EvidenceIDs      []string            `json:"evidenceIds,omitempty"`
+	ChangedFiles     []string            `json:"changedFiles,omitempty"`
+	ContextManifest  string              `json:"contextManifest,omitempty"`
+	Validations      []validation.Result `json:"validations,omitempty"`
+	Attempts         int                 `json:"attempts"`
+	Error            string              `json:"error,omitempty"`
 }
 
 var ErrPaused = errors.New("run paused by explicit control request")
@@ -99,6 +101,7 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 	var runID string
 	var m *runtime.Machine
 	var report Report
+	var resumeCheckpoint domain.Checkpoint
 	if resuming {
 		order = e.resume.Order
 		if len(order.Requirements) > 0 {
@@ -115,7 +118,16 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 		if m == nil {
 			m = runtime.New()
 		}
-		report = Report{RunID: runID, WorkOrderID: order.ID, State: m.State, NextAction: e.resume.Snapshot.NextActionOr(m), Findings: e.resume.Snapshot.Findings, EvidenceIDs: e.resume.Snapshot.EvidenceIDs, ChangedFiles: e.resume.Snapshot.ChangedFiles, ContextManifest: e.resume.Snapshot.ContextManifest}
+		report = Report{RunID: runID, WorkOrderID: order.ID, HarnessID: e.resume.Snapshot.HarnessID, HarnessSessionID: e.resume.Snapshot.HarnessSessionID, State: m.State, NextAction: e.resume.Snapshot.NextActionOr(m), Findings: e.resume.Snapshot.Findings, EvidenceIDs: e.resume.Snapshot.EvidenceIDs, ChangedFiles: e.resume.Snapshot.ChangedFiles, ContextManifest: e.resume.Snapshot.ContextManifest}
+		if latest, checkpointErr := checkpoint.Latest(e.Store, order.ID); checkpointErr == nil {
+			resumeCheckpoint = latest
+			if report.HarnessID == "" {
+				report.HarnessID = latest.HarnessID
+			}
+			if report.HarnessSessionID == "" {
+				report.HarnessSessionID = latest.HarnessSessionID
+			}
+		}
 		if err := e.event(runID, "RESUME_REQUESTED", map[string]any{"workOrderId": order.ID, "state": m.State}); err != nil {
 			return report, err
 		}
@@ -258,7 +270,7 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 		}
 		if current == nil {
 			if cfg, err := harness.LoadConfig(e.Root); err == nil {
-				current = harness.NewConfiguredProcess(ctx, cfg)
+				current = harness.NewAdapter(ctx, e.Root, cfg)
 			}
 		}
 		if current == nil {
@@ -267,16 +279,53 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 		if err := current.Discover(); err != nil {
 			return e.block(ctx, m, report, fmt.Errorf("harness discovery: %w", err))
 		}
-		harnessSession, err := current.Start(packet)
-		if err != nil {
-			return e.block(ctx, m, report, fmt.Errorf("harness start: %w", err))
+		harnessSession := ""
+		var err error
+		resumeCompatible := true
+		if identified, ok := current.(harness.HarnessIdentity); ok && resumeCheckpoint.HarnessID != "" && identified.HarnessID() != resumeCheckpoint.HarnessID {
+			resumeCompatible = false
+			if err := e.event(runID, "RESUME_HARNESS_MISMATCH", map[string]any{"checkpointHarnessId": resumeCheckpoint.HarnessID, "configuredHarnessId": identified.HarnessID(), "sessionId": resumeCheckpoint.HarnessSessionID, "fallback": "start-new-provider-session"}); err != nil {
+				return e.block(ctx, m, report, err)
+			}
 		}
 		harnessID := "unknown"
 		if identified, ok := current.(harness.HarnessIdentity); ok {
 			harnessID = identified.HarnessID()
 		}
-		if err := e.Store.Write("harnesses/"+harnessID+".json", domain.Harness{ID: harnessID, Name: harnessID, Capabilities: current.Capabilities(), Version: "configured"}); err != nil {
+		report.HarnessID = harnessID
+		if resuming && attempt == 1 && resumeCompatible && resumeCheckpoint.HarnessSessionID != "" {
+			if resumer, ok := current.(harness.PacketResumer); ok {
+				harnessSession, err = resumer.ResumePacket(resumeCheckpoint, packet)
+				if err != nil {
+					if eventErr := e.event(runID, "RESUME_FAILED", map[string]any{"harnessId": report.HarnessID, "sessionId": resumeCheckpoint.HarnessSessionID, "error": err.Error(), "fallback": "start-new-provider-session"}); eventErr != nil {
+						return e.block(ctx, m, report, eventErr)
+					}
+					harnessSession, err = current.Start(packet)
+				}
+			} else {
+				harnessSession, err = current.Start(packet)
+			}
+		} else {
+			harnessSession, err = current.Start(packet)
+		}
+		if err != nil {
+			return e.block(ctx, m, report, fmt.Errorf("harness start: %w", err))
+		}
+		if session, ok := current.(harness.SessionIdentity); ok && session.SessionID() != "" {
+			harnessSession = session.SessionID()
+		}
+		report.HarnessSessionID = harnessSession
+		version := "configured"
+		if versioned, ok := current.(harness.Versioned); ok && versioned.Version() != "" {
+			version = versioned.Version()
+		}
+		if err := e.Store.Write("harnesses/"+harnessID+".json", domain.Harness{ID: harnessID, Name: harnessID, Capabilities: current.Capabilities(), Version: version}); err != nil {
 			return e.block(ctx, m, report, err)
+		}
+		if metadata, ok := current.(harness.MetadataProvider); ok {
+			if err := e.event(runID, "HARNESS_METADATA", map[string]any{"harnessId": harnessID, "sessionId": harnessSession, "metadata": metadata.Metadata()}); err != nil {
+				return e.block(ctx, m, report, err)
+			}
 		}
 		startedAt := time.Now().UTC()
 		if err := e.Store.Write("harness-sessions/"+harnessSession+".json", domain.HarnessSession{ID: harnessSession, HarnessID: harnessID, RunID: runID, Status: domain.StatusRunning, StartedAt: startedAt}); err != nil {
@@ -454,7 +503,27 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 		if err := e.transition(m, runtime.Evaluate, "validation and evidence evaluated", &report); err != nil {
 			return e.block(ctx, m, report, err)
 		}
-		findings := supervisor.Evaluate(supervisor.Result{Status: string(status), Claims: claims, ChangedFiles: changed, ValidationPassed: validationPassed, PreviousActions: append(previousActions, actions...), RequirementsSatisfied: validationPassed, ScopeAllowed: true, ToolCount: len(actions), MaxToolCount: e.Limits.MaxToolCalls, ContextTokens: packetTokens(packet), MaxContextTokens: e.Limits.MaxContextTokens})
+		fileReads := []string{}
+		for _, o := range observations {
+			if o.Type == "FILE_READ" {
+				fileReads = append(fileReads, o.Summary)
+			}
+		}
+		findings := supervisor.Evaluate(supervisor.Result{
+			Status:                string(status),
+			Claims:                claims,
+			ChangedFiles:          changed,
+			ValidationPassed:      validationPassed,
+			PreviousActions:       append(previousActions, actions...),
+			RequirementsSatisfied: validationPassed,
+			ScopeAllowed:          true,
+			RepeatedReads:         findDuplicates(fileReads),
+			EvidenceIDs:           append([]string(nil), allEvidence...),
+			ToolCount:             len(actions),
+			MaxToolCount:          e.Limits.MaxToolCalls,
+			ContextTokens:         packetTokens(packet),
+			MaxContextTokens:      e.Limits.MaxContextTokens,
+		})
 		previousActions = append(previousActions, actions...)
 		lastFindings = findings
 		report.Findings = findings
@@ -556,6 +625,9 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 				previousHarness = identified.HarnessID()
 			}
 			if e.AdapterFactory != nil {
+				if stopper, ok := current.(harness.Stopper); ok {
+					_ = stopper.Stop()
+				}
 				current = e.AdapterFactory()
 			} else {
 				current = nil
@@ -627,7 +699,7 @@ func (e *Engine) event(runID, typ string, payload map[string]any) error {
 	return e.Journal.Append(observation.Event{RunID: runID, Type: typ, Source: "keystone-control", OperationID: fmt.Sprintf("%s:%s:%d", runID, typ, time.Now().UnixNano()), Payload: payload})
 }
 func (e *Engine) persist(m *runtime.Machine, report Report, checkpointID *string) error {
-	snap := state.Snapshot{SchemaVersion: "2", Lifecycle: string(m.State), RunID: report.RunID, WorkOrderID: report.WorkOrderID, Machine: m, NextAction: &report.NextAction, Findings: report.Findings, EvidenceIDs: report.EvidenceIDs, ChangedFiles: report.ChangedFiles, ContextManifest: report.ContextManifest, UpdatedAt: time.Now().UTC(), LastError: report.Error}
+	snap := state.Snapshot{SchemaVersion: "2", Lifecycle: string(m.State), RunID: report.RunID, WorkOrderID: report.WorkOrderID, HarnessID: report.HarnessID, HarnessSessionID: report.HarnessSessionID, Machine: m, NextAction: &report.NextAction, Findings: report.Findings, EvidenceIDs: report.EvidenceIDs, ChangedFiles: report.ChangedFiles, ContextManifest: report.ContextManifest, UpdatedAt: time.Now().UTC(), LastError: report.Error}
 	if checkpointID != nil {
 		snap.CheckpointID = *checkpointID
 	}
@@ -635,7 +707,7 @@ func (e *Engine) persist(m *runtime.Machine, report Report, checkpointID *string
 }
 func (e *Engine) checkpoint(m *runtime.Machine, report Report, changed []string, findings []domain.Finding) error {
 	id := fmt.Sprintf("CP-%s-%d", report.RunID, report.Attempts)
-	c := domain.Checkpoint{SchemaVersion: "2", ID: id, WorkOrderID: report.WorkOrderID, RunID: report.RunID, State: string(m.State), ChangedFiles: changed, ContextManifest: report.ContextManifest, HarnessID: "local-process", NextAction: &report.NextAction, CreatedAt: time.Now().UTC()}
+	c := domain.Checkpoint{SchemaVersion: "2", ID: id, WorkOrderID: report.WorkOrderID, RunID: report.RunID, State: string(m.State), ChangedFiles: changed, ContextManifest: report.ContextManifest, HarnessID: report.HarnessID, HarnessSessionID: report.HarnessSessionID, NextAction: &report.NextAction, CreatedAt: time.Now().UTC()}
 	for _, t := range m.History {
 		c.Completed = append(c.Completed, string(t.To))
 	}
@@ -738,25 +810,29 @@ func collect(ctx stdcontext.Context, a harness.Adapter, max int, paused func() b
 		ch := make(chan result, 1)
 		go func() { v, err := a.Observe(); ch <- result{v, err} }()
 		ticker := time.NewTicker(100 * time.Millisecond)
-		select {
-		case <-ctx.Done():
-			ticker.Stop()
-			_ = a.Interrupt()
-			return out, ctx.Err()
-		case r := <-ch:
-			ticker.Stop()
-			if r.err != nil {
-				return out, r.err
-			}
-			if len(r.items) == 0 {
-				return out, nil
-			}
-			out = append(out, r.items...)
-		case <-ticker.C:
-			if paused != nil && paused() {
+	waitLoop:
+		for {
+			select {
+			case <-ctx.Done():
 				ticker.Stop()
 				_ = a.Interrupt()
-				return out, ErrPaused
+				return out, ctx.Err()
+			case r := <-ch:
+				ticker.Stop()
+				if r.err != nil {
+					return out, r.err
+				}
+				if len(r.items) == 0 {
+					return out, nil
+				}
+				out = append(out, r.items...)
+				break waitLoop
+			case <-ticker.C:
+				if paused != nil && paused() {
+					ticker.Stop()
+					_ = a.Interrupt()
+					return out, ErrPaused
+				}
 			}
 		}
 	}
@@ -900,4 +976,16 @@ func DecodeObservation(payload map[string]any) (domain.Observation, error) {
 	}
 	var o domain.Observation
 	return o, json.Unmarshal(b, &o)
+}
+
+func findDuplicates(items []string) []string {
+	seen := map[string]int{}
+	dups := []string{}
+	for _, item := range items {
+		seen[item]++
+		if seen[item] == 2 {
+			dups = append(dups, item)
+		}
+	}
+	return dups
 }

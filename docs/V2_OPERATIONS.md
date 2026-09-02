@@ -32,6 +32,15 @@ The process receives one rendered work packet on stdin and emits newline-delimit
 
 The local adapter supports discovery, identity, start, send, observe, interrupt, resume, result, timeout and process failure. Missing observability is recorded as a durable OBSERVABILITY_LIMITATION event.
 
+Keystone can auto-select a working `codex` or `agy` executable when no harness file is present. Explicit provider configurations are:
+
+    {"provider":"codex","name":"codex","command":"codex","timeoutSeconds":1800}
+    {"provider":"antigravity","name":"antigravity","command":"agy","timeoutSeconds":1800}
+
+The Codex adapter launches `codex exec --json` and resumes with `codex exec resume SESSION-ID`. The Antigravity adapter launches `agy -p ... --output-format stream-json` and resumes with `--conversation CONVERSATION-ID`. The child working directory is set by Keystone, which also preserves the provider's default permission policy; dangerous permission-bypass flags are never inserted automatically. A provider turn is a bounded process, so follow-up `Send` starts a resumed provider turn after the current process exits.
+
+`keystone doctor` reports provider availability, version, control surfaces, observation surfaces, evidence surfaces, and known limitations. An installed binary is not treated as authenticated or usable until its headless session emits a provider session event; authentication and provider startup failures remain durable blockers.
+
 ## Verification and evidence
 
 Every run records the work order, requirement, harness session/run, normalized observations, Git baseline/state, validation results, artifacts, findings, policy decisions and checkpoint. Evidence stores its work-order scope, relevant commit/input digest, supporting observation IDs and artifact IDs.
@@ -79,7 +88,7 @@ The delivery package persists release candidates, deployment plans/blocks and in
 ## Troubleshooting
 
 - Keystone is not initialized: run keystone init in the project root.
-- no harness configured: configure .keystone/harness.json; the run remains durably blocked until resumed.
+- no harness configured: install/configure `codex`, `agy`, or `.keystone/harness.json`; the run remains durably blocked until resumed.
 - completion was not verified: inspect keystone review, validation artifacts, and keystone replay RUN-ID.
 - state snapshot corruption: run keystone continue; recovery succeeds only if the complete event journal is valid.
 - malformed journal or non-increasing sequence: preserve the original .keystone/events.jsonl, repair it using an audited backup/recovery procedure, and rerun keystone doctor. Keystone will not silently skip damaged history.

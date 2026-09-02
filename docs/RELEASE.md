@@ -23,4 +23,18 @@ Run CLI smoke checks in a disposable fixture:
     keystone run "inspect the fixture"
     keystone replay RUN-ID
 
+Verify the real provider boundary on the release machine when a provider is in
+scope:
+
+    agy --version
+    codex --version
+    keystone doctor
+    keystone run "make a small validated fixture change"
+
+The provider smoke must use an authenticated CLI and must leave a durable
+provider session id, normalized observations, deterministic validation, and a
+verified completion. A protocol fixture test is not a substitute for this
+smoke. If a provider is unavailable or unauthenticated, keep it marked PARTIAL
+and do not publish a release claiming that provider is verified.
+
 Do not tag while docs/IMPLEMENTATION_STATUS.json contains a material MISSING, BROKEN, or unresolved release-blocking PARTIAL capability. The release commit must be reviewed on the intended branch, and the annotated tag must point to that exact commit.

@@ -14,6 +14,7 @@ const (
 	Loop                  = "LOOP"
 	RepeatedFailure       = "REPEATED_FAILURE"
 	ExcessiveActivity     = "EXCESSIVE_ACTIVITY"
+	InefficientActivity   = "INEFFICIENT_ACTIVITY"
 	StaleAssumption       = "STALE_ASSUMPTION"
 	PrematureCompletion   = "PREMATURE_COMPLETION"
 )
@@ -26,8 +27,11 @@ type Result struct {
 	PreviousActions       []string
 	RequirementsSatisfied bool
 	ScopeAllowed          bool
+	RequirementDrift      bool
 	ArchitectureDrift     bool
 	StaleAssumptions      bool
+	RepeatedReads         []string
+	EvidenceIDs           []string
 	ToolCount             int
 	MaxToolCount          int
 	ContextTokens         int
@@ -37,7 +41,7 @@ type Result struct {
 func Evaluate(r Result) []domain.Finding {
 	var findings []domain.Finding
 	add := func(id, typ, severity string, confidence float64, action, explanation string) {
-		findings = append(findings, domain.Finding{ID: id, Type: typ, Severity: severity, Confidence: confidence, RecommendedAction: action, Explanation: explanation, Provenance: []string{"deterministic-supervisor"}})
+		findings = append(findings, domain.Finding{ID: id, Type: typ, Severity: severity, Confidence: confidence, EvidenceIDs: append([]string(nil), r.EvidenceIDs...), RecommendedAction: action, Explanation: explanation, Provenance: []string{"deterministic-supervisor"}})
 	}
 	if strings.EqualFold(r.Status, "completed") && !r.ValidationPassed {
 		add("F-UNVERIFIED", UnsupportedCompletion, "high", 0.99, "RUN_VALIDATION", "completion was reported without passing validation")
@@ -47,6 +51,9 @@ func Evaluate(r Result) []domain.Finding {
 	}
 	if r.ScopeAllowed == false && len(r.ChangedFiles) > 0 {
 		add("F-SCOPE", ScopeExpansion, "high", 0.97, "ASK", "changed files exceed the approved work scope")
+	}
+	if r.RequirementDrift {
+		add("F-DRIFT", RequirementDrift, "high", 0.90, "REPLAN", "observed changes conflict with requirement acceptance criteria")
 	}
 	if r.ArchitectureDrift {
 		add("F-ARCH", ArchitectureDrift, "high", 0.85, "REPLAN", "observed changes conflict with recorded architecture")
@@ -65,6 +72,9 @@ func Evaluate(r Result) []domain.Finding {
 	}
 	if r.MaxContextTokens > 0 && r.ContextTokens > r.MaxContextTokens {
 		add("F-CONTEXT", ExcessiveActivity, "high", 0.99, "STOP", "context usage exceeded the configured hard limit")
+	}
+	if len(r.RepeatedReads) > 0 {
+		add("F-READS", InefficientActivity, "warning", 0.75, "OPTIMIZE_CONTEXT", "detected repeated file reads with low information gain")
 	}
 	return findings
 }

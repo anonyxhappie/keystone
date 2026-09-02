@@ -2,6 +2,7 @@ package control
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -340,5 +341,53 @@ func TestEndToEndFixtureRunsDeterministicValidation(t *testing.T) {
 		if !result.Passed {
 			t.Fatalf("validation failed: %+v", result)
 		}
+	}
+}
+
+func TestRunUsesConfiguredProviderAdapterAndPersistsSessionIdentity(t *testing.T) {
+	root := t.TempDir()
+	initRunnableFixture(t, root)
+	providerCommand := filepath.Join(root, "codex-fixture.sh")
+	providerScript := `#!/bin/sh
+if [ "$1" = "--version" ]; then printf 'codex-fixture 1.0\n'; exit 0; fi
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-engine-1"}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"command_execution","command":"go test ./...","exit_code":0}}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"implemented fixture"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":4,"output_tokens":3}}'
+`
+	if err := os.WriteFile(providerCommand, []byte(providerScript), 0700); err != nil {
+		t.Fatal(err)
+	}
+	config, err := json.Marshal(harness.Config{Provider: "codex", Name: "codex", Command: providerCommand, TimeoutSeconds: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".keystone", "harness.json"), config, 0600); err != nil {
+		t.Fatal(err)
+	}
+	e, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := e.Run(context.Background(), "verify configured provider", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.State != "COMPLETE" || report.HarnessID != "codex" || report.HarnessSessionID != "thread-engine-1" {
+		t.Fatalf("provider run did not complete with durable identity: %+v", report)
+	}
+	var snapshot state.Snapshot
+	if err := state.New(root).Read("state.json", &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.HarnessID != report.HarnessID || snapshot.HarnessSessionID != report.HarnessSessionID {
+		t.Fatalf("snapshot lost provider identity: %+v", snapshot)
+	}
+	var checkpoint domain.Checkpoint
+	if err := state.New(root).Read("checkpoints/CP-"+report.RunID+"-1.json", &checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	if checkpoint.HarnessSessionID != report.HarnessSessionID {
+		t.Fatalf("checkpoint lost provider session: %+v", checkpoint)
 	}
 }

@@ -126,14 +126,15 @@ type ContextRef struct {
 }
 
 type NextAction struct {
-	ID               string   `json:"id"`
-	Type             string   `json:"type"`
-	Reason           string   `json:"reason"`
-	Target           string   `json:"target,omitempty"`
-	Inputs           []string `json:"inputs,omitempty"`
-	Risk             string   `json:"risk"`
-	Allowed          bool     `json:"allowed"`
-	RequiresApproval bool     `json:"requiresApproval"`
+	ID               string   `json:"id" yaml:"id"`
+	Type             string   `json:"type" yaml:"type"`
+	Reason           string   `json:"reason" yaml:"reason"`
+	Target           string   `json:"target,omitempty" yaml:"target,omitempty"`
+	Inputs           []string `json:"inputs,omitempty" yaml:"inputs,omitempty"`
+	Risk             string   `json:"risk" yaml:"risk"`
+	PolicyDecision   string   `json:"policyDecision,omitempty" yaml:"policyDecision,omitempty"`
+	Allowed          bool     `json:"allowed" yaml:"allowed"`
+	RequiresApproval bool     `json:"requiresApproval" yaml:"requiresApproval"`
 }
 
 type Observation struct {
@@ -182,21 +183,22 @@ type PolicyDecision struct {
 }
 
 type Checkpoint struct {
-	ID              string      `json:"id" yaml:"id"`
-	WorkOrderID     string      `json:"workOrderId" yaml:"workOrderId"`
-	State           string      `json:"state" yaml:"state"`
-	Completed       []string    `json:"completed,omitempty" yaml:"completed,omitempty"`
-	Pending         []string    `json:"pending,omitempty" yaml:"pending,omitempty"`
-	ChangedFiles    []string    `json:"changedFiles,omitempty" yaml:"changedFiles,omitempty"`
-	LastCommit      string      `json:"lastCommit,omitempty" yaml:"lastCommit,omitempty"`
-	ContextManifest string      `json:"contextManifest,omitempty" yaml:"contextManifest,omitempty"`
-	Unresolved      []string    `json:"unresolvedQuestions,omitempty" yaml:"unresolvedQuestions,omitempty"`
-	Blockers        []string    `json:"blockers,omitempty" yaml:"blockers,omitempty"`
-	SchemaVersion   string      `json:"schemaVersion,omitempty" yaml:"schemaVersion,omitempty"`
-	HarnessID       string      `json:"harnessId,omitempty" yaml:"harnessId,omitempty"`
-	RunID           string      `json:"runId,omitempty" yaml:"runId,omitempty"`
-	NextAction      *NextAction `json:"nextAction,omitempty" yaml:"nextAction,omitempty"`
-	CreatedAt       time.Time   `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
+	ID               string      `json:"id" yaml:"id"`
+	WorkOrderID      string      `json:"workOrderId" yaml:"workOrderId"`
+	State            string      `json:"state" yaml:"state"`
+	Completed        []string    `json:"completed,omitempty" yaml:"completed,omitempty"`
+	Pending          []string    `json:"pending,omitempty" yaml:"pending,omitempty"`
+	ChangedFiles     []string    `json:"changedFiles,omitempty" yaml:"changedFiles,omitempty"`
+	LastCommit       string      `json:"lastCommit,omitempty" yaml:"lastCommit,omitempty"`
+	ContextManifest  string      `json:"contextManifest,omitempty" yaml:"contextManifest,omitempty"`
+	Unresolved       []string    `json:"unresolvedQuestions,omitempty" yaml:"unresolvedQuestions,omitempty"`
+	Blockers         []string    `json:"blockers,omitempty" yaml:"blockers,omitempty"`
+	SchemaVersion    string      `json:"schemaVersion,omitempty" yaml:"schemaVersion,omitempty"`
+	HarnessID        string      `json:"harnessId,omitempty" yaml:"harnessId,omitempty"`
+	HarnessSessionID string      `json:"harnessSessionId,omitempty" yaml:"harnessSessionId,omitempty"`
+	RunID            string      `json:"runId,omitempty" yaml:"runId,omitempty"`
+	NextAction       *NextAction `json:"nextAction,omitempty" yaml:"nextAction,omitempty"`
+	CreatedAt        time.Time   `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
 }
 
 type Learning struct {

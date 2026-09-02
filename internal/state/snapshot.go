@@ -11,20 +11,22 @@ import (
 // Snapshot is a materialized cache. The event journal remains the durable source
 // of truth and can reconstruct the machine after this file is lost or corrupted.
 type Snapshot struct {
-	SchemaVersion   string             `json:"schemaVersion"`
-	Lifecycle       string             `json:"lifecycle"`
-	RunID           string             `json:"runId,omitempty"`
-	WorkOrderID     string             `json:"workOrderId,omitempty"`
-	Machine         *runtime.Machine   `json:"machine,omitempty"`
-	NextAction      *domain.NextAction `json:"nextAction,omitempty"`
-	Findings        []domain.Finding   `json:"findings,omitempty"`
-	EvidenceIDs     []string           `json:"evidenceIds,omitempty"`
-	ChangedFiles    []string           `json:"changedFiles,omitempty"`
-	ContextManifest string             `json:"contextManifest,omitempty"`
-	CheckpointID    string             `json:"checkpointId,omitempty"`
-	Paused          bool               `json:"paused,omitempty"`
-	UpdatedAt       time.Time          `json:"updatedAt"`
-	LastError       string             `json:"lastError,omitempty"`
+	SchemaVersion    string             `json:"schemaVersion"`
+	Lifecycle        string             `json:"lifecycle"`
+	RunID            string             `json:"runId,omitempty"`
+	WorkOrderID      string             `json:"workOrderId,omitempty"`
+	HarnessID        string             `json:"harnessId,omitempty"`
+	HarnessSessionID string             `json:"harnessSessionId,omitempty"`
+	Machine          *runtime.Machine   `json:"machine,omitempty"`
+	NextAction       *domain.NextAction `json:"nextAction,omitempty"`
+	Findings         []domain.Finding   `json:"findings,omitempty"`
+	EvidenceIDs      []string           `json:"evidenceIds,omitempty"`
+	ChangedFiles     []string           `json:"changedFiles,omitempty"`
+	ContextManifest  string             `json:"contextManifest,omitempty"`
+	CheckpointID     string             `json:"checkpointId,omitempty"`
+	Paused           bool               `json:"paused,omitempty"`
+	UpdatedAt        time.Time          `json:"updatedAt"`
+	LastError        string             `json:"lastError,omitempty"`
 }
 
 func (s Store) SaveSnapshot(snapshot Snapshot) error {

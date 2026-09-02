@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +18,7 @@ import (
 
 type Config struct {
 	Name           string   `json:"name"`
+	Provider       string   `json:"provider,omitempty"`
 	Command        string   `json:"command"`
 	Args           []string `json:"args,omitempty"`
 	Capabilities   []string `json:"capabilities,omitempty"`
@@ -25,43 +27,170 @@ type Config struct {
 
 func LoadConfig(root string) (Config, error) {
 	var cfg Config
-	b, err := os.ReadFile(root + string(os.PathSeparator) + ".keystone" + string(os.PathSeparator) + "harness.json")
+	configPath := filepath.Join(root, ".keystone", "harness.json")
+	b, err := os.ReadFile(configPath)
+	configured := err == nil
 	if err == nil {
 		if err = json.Unmarshal(b, &cfg); err != nil {
 			return cfg, fmt.Errorf("invalid harness.json: %w", err)
 		}
+	} else if !os.IsNotExist(err) {
+		return cfg, fmt.Errorf("read harness.json: %w", err)
+	}
+	provider := normalizeProvider(cfg.Provider)
+	if provider == "" {
+		provider = normalizeProvider(os.Getenv("KEYSTONE_HARNESS"))
 	}
 	if cfg.Command == "" {
 		cfg.Command = os.Getenv("KEYSTONE_HARNESS_COMMAND")
 	}
+	if cfg.Command == "" && provider != "" {
+		cfg.Command = defaultProviderCommand(provider)
+	}
+	if cfg.Command == "" && !configured && os.Getenv("KEYSTONE_HARNESS") == "" && os.Getenv("KEYSTONE_HARNESS_COMMAND") == "" {
+		for _, candidate := range []string{"codex", "antigravity"} {
+			command := defaultProviderCommand(candidate)
+			if _, _, ok := probeCommand(command); ok {
+				provider = candidate
+				cfg.Command = command
+				break
+			}
+		}
+	}
+	if provider != "" {
+		cfg.Provider = provider
+	}
 	if cfg.Name == "" && cfg.Command != "" {
-		cfg.Name = "local-process"
+		if provider != "" {
+			cfg.Name = provider
+		} else {
+			cfg.Name = "local-process"
+		}
 	}
 	if cfg.TimeoutSeconds <= 0 {
 		cfg.TimeoutSeconds = 300
 	}
 	if cfg.Command == "" {
-		return cfg, fmt.Errorf("no harness configured; create .keystone/harness.json or set KEYSTONE_HARNESS_COMMAND")
+		return cfg, fmt.Errorf("no harness configured; create .keystone/harness.json, set KEYSTONE_HARNESS_COMMAND, or install/configure codex or agy")
 	}
 	return cfg, nil
 }
 
 type Discovery struct {
-	Name         string   `json:"name"`
-	Kind         string   `json:"kind"`
-	Available    bool     `json:"available"`
-	Capabilities []string `json:"capabilities,omitempty"`
-	Reason       string   `json:"reason,omitempty"`
+	Name          string   `json:"name"`
+	Kind          string   `json:"kind"`
+	Available     bool     `json:"available"`
+	Provider      string   `json:"provider,omitempty"`
+	Version       string   `json:"version,omitempty"`
+	Capabilities  []string `json:"capabilities,omitempty"`
+	Control       []string `json:"control,omitempty"`
+	Observability []string `json:"observability,omitempty"`
+	Evidence      []string `json:"evidence,omitempty"`
+	Limitations   []string `json:"limitations,omitempty"`
+	Reason        string   `json:"reason,omitempty"`
 }
 
 func Discover(root string) []Discovery {
 	out := []Discovery{{Name: "manual", Kind: "instruction-file", Available: true, Capabilities: []string{"prompt-export", "result-import"}}}
+	seen := map[string]bool{"manual": true}
 	if cfg, err := LoadConfig(root); err == nil {
-		out = append(out, Discovery{Name: cfg.Name, Kind: "local-process", Available: true, Capabilities: append([]string{"start", "send", "observe", "interrupt", "resume", "result", "stdout-observation"}, cfg.Capabilities...)})
+		discovery := discoveryForConfig(cfg)
+		out = append(out, discovery)
+		seen[discovery.Name] = true
 	} else {
 		out = append(out, Discovery{Name: "local-process", Kind: "local-process", Reason: err.Error()})
+		seen["local-process"] = true
+	}
+	for _, provider := range []string{"codex", "antigravity"} {
+		if seen[provider] {
+			continue
+		}
+		cfg := Config{Name: provider, Provider: provider, Command: defaultProviderCommand(provider), TimeoutSeconds: 300}
+		out = append(out, discoveryForConfig(cfg))
 	}
 	return out
+}
+
+func normalizeProvider(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "codex":
+		return "codex"
+	case "agy", "antigravity", "antigravity-ide":
+		return "antigravity"
+	case "local", "local-process", "process":
+		return ""
+	default:
+		return ""
+	}
+}
+
+func defaultProviderCommand(provider string) string {
+	if normalizeProvider(provider) == "antigravity" {
+		return "agy"
+	}
+	return "codex"
+}
+
+func probeCommand(command string) (string, string, bool) {
+	path, err := exec.LookPath(command)
+	if err != nil {
+		return "", fmt.Sprintf("command %q is not on PATH: %v", command, err), false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "--version")
+	output, err := cmd.CombinedOutput()
+	version := strings.TrimSpace(redact(string(output)))
+	if ctx.Err() != nil {
+		return path, fmt.Sprintf("version probe timed out after 2s"), false
+	}
+	if err != nil {
+		if version == "" {
+			version = err.Error()
+		}
+		return path, fmt.Sprintf("version probe failed: %s", version), false
+	}
+	return path, version, true
+}
+
+func providerCapabilities(provider string) (capabilities, control, observability, evidence, limitations []string) {
+	base := []string{"start", "observe", "interrupt", "resume", "result", "stdout-observation", "session-resume", "usage", "tool-events", "file-events", "command-events"}
+	control = []string{"start", "resume", "interrupt"}
+	observability = []string{"jsonl-events", "turn-events", "tool-events", "file-events", "command-events", "usage"}
+	evidence = []string{"session-events", "tool-events", "file-events", "command-events", "provider-result"}
+	limitations = []string{"provider CLI execution is one-shot per turn; in-turn Send is unavailable and follow-up uses provider session resume"}
+	switch normalizeProvider(provider) {
+	case "codex":
+		return base, control, observability, evidence, limitations
+	case "antigravity":
+		return base, control, observability, evidence, limitations
+	default:
+		return []string{"start", "send", "observe", "interrupt", "resume", "result", "stdout-observation"}, []string{"start", "send", "resume", "interrupt"}, []string{"stdout"}, []string{"stdout-observation"}, nil
+	}
+}
+
+func discoveryForConfig(cfg Config) Discovery {
+	provider := normalizeProvider(cfg.Provider)
+	if provider == "" {
+		provider = normalizeProvider(cfg.Name)
+	}
+	if provider != "" {
+		caps, control, observability, evidence, limitations := providerCapabilities(provider)
+		path, version, available := probeCommand(cfg.Command)
+		_ = path
+		item := Discovery{Name: cfg.Name, Kind: provider, Available: available, Provider: provider, Version: version, Capabilities: append(caps, cfg.Capabilities...), Control: control, Observability: observability, Evidence: evidence, Limitations: limitations}
+		if !available {
+			item.Reason = version
+		}
+		return item
+	}
+	path, reason, available := probeCommand(cfg.Command)
+	_ = path
+	item := Discovery{Name: cfg.Name, Kind: "local-process", Available: available, Capabilities: append([]string{"start", "send", "observe", "interrupt", "resume", "result", "stdout-observation"}, cfg.Capabilities...)}
+	if !available {
+		item.Reason = reason
+	}
+	return item
 }
 
 type ProcessAdapter struct {
@@ -81,6 +210,9 @@ type ProcessAdapter struct {
 type Local = ProcessAdapter
 
 func NewProcessAdapter(ctx context.Context, cfg Config) *ProcessAdapter {
+	if cfg.TimeoutSeconds <= 0 {
+		cfg.TimeoutSeconds = 300
+	}
 	child, cancel := context.WithTimeout(ctx, time.Duration(cfg.TimeoutSeconds)*time.Second)
 	return &ProcessAdapter{Config: cfg, ctx: child, cancel: cancel, result: domain.StatusUnknown}
 }

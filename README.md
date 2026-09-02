@@ -16,13 +16,25 @@ keystone status
 keystone run "add the requested feature"
 ```
 
-`keystone init` creates a portable `.keystone/` state boundary. `keystone run` creates a durable work order, advances the canonical lifecycle, executes a configured local process harness, persists observations and evidence, validates the result, and stops or completes only through the state machine. Without an executable harness, it records a durable `BLOCKED` checkpoint.
+`keystone init` creates a portable `.keystone/` state boundary. `keystone run` creates a durable work order, advances the canonical lifecycle, executes a configured harness, persists observations and evidence, validates the result, and stops or completes only through the state machine. When no harness configuration exists, Keystone auto-detects a working `codex` or `agy` CLI; otherwise it records a durable `BLOCKED` checkpoint.
 
 Configure a local process harness in `.keystone/harness.json`:
 
 ```json
 {"name":"local-process","command":"your-harness","args":[],"timeoutSeconds":300}
 ```
+
+Keystone also bridges the documented headless CLIs of existing AI harnesses. Use either provider explicitly when desired:
+
+```json
+{"provider":"codex","name":"codex","command":"codex","timeoutSeconds":1800}
+```
+
+```json
+{"provider":"antigravity","name":"antigravity","command":"agy","timeoutSeconds":1800}
+```
+
+Codex JSONL events and Antigravity stream-JSON events are normalized into durable session, turn, tool, command, file, usage, result, and error observations. Provider conversation/session IDs are stored in checkpoints so `keystone continue` can use provider-native resume. Keystone sets the child process working directory directly and never adds provider permission-bypass flags.
 
 The command receives the structured work packet on stdin. Its newline-delimited stdout is normalized into observations. `keystone ask` remains the manual/instruction-file integration.
 

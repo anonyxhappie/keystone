@@ -24,7 +24,7 @@ import (
 	"github.com/anonyxhappie/keystone/v2/internal/work"
 )
 
-const version = "2.0.1"
+const version = "2.1.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -312,7 +312,7 @@ func localFactory(root string) func() harness.Adapter {
 		if err != nil {
 			return nil
 		}
-		return harness.NewConfiguredProcess(context.Background(), cfg)
+		return harness.NewAdapter(context.Background(), root, cfg)
 	}
 }
 func appendEvent(root, runID, typ string, payload map[string]any) error {

@@ -2,7 +2,6 @@ package repl
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,8 +30,11 @@ func setupTestProject(t *testing.T) string {
 	}
 
 	harnessCfg := harness.Config{Name: "test-harness", Command: "sh", Args: []string{"-c", "read line; echo done"}, TimeoutSeconds: 10}
-	cfgBytes, _ := json.Marshal(harnessCfg)
-	_ = os.WriteFile(filepath.Join(root, state.Dir, "harness.json"), cfgBytes, 0600)
+	cfgBytes := []byte(`{"name":"test-harness","command":"sh","args":["-c","read line; echo done"],"timeoutSeconds":10}`)
+	if err := os.WriteFile(filepath.Join(root, state.Dir, "harness.json"), cfgBytes, 0600); err != nil {
+		t.Fatal(err)
+	}
+	_ = harnessCfg
 
 	return root
 }

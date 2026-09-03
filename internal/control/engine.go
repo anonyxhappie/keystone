@@ -49,6 +49,7 @@ type Engine struct {
 	RequestedHarness string
 	OnEvent          func(observation.Event)
 	OnObservation    func(domain.Observation)
+	ResumeSessionID  string
 	resume           *resumeInput
 }
 type resumeInput struct {
@@ -368,11 +369,18 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			harnessID = identified.HarnessID()
 		}
 		report.HarnessID = harnessID
+		targetSessionID := ""
 		if resuming && attempt == 1 && resumeCompatible && resumeCheckpoint.HarnessSessionID != "" {
+			targetSessionID = resumeCheckpoint.HarnessSessionID
+		} else if attempt == 1 && e.ResumeSessionID != "" {
+			targetSessionID = e.ResumeSessionID
+		}
+		if targetSessionID != "" {
 			if resumer, ok := current.(harness.PacketResumer); ok {
-				harnessSession, err = resumer.ResumePacket(resumeCheckpoint, packet)
+				cp := domain.Checkpoint{WorkOrderID: order.ID, HarnessID: report.HarnessID, HarnessSessionID: targetSessionID}
+				harnessSession, err = resumer.ResumePacket(cp, packet)
 				if err != nil {
-					if eventErr := e.event(runID, "RESUME_FAILED", map[string]any{"harnessId": report.HarnessID, "sessionId": resumeCheckpoint.HarnessSessionID, "error": err.Error(), "fallback": "start-new-provider-session"}); eventErr != nil {
+					if eventErr := e.event(runID, "RESUME_FAILED", map[string]any{"harnessId": report.HarnessID, "sessionId": targetSessionID, "error": err.Error(), "fallback": "start-new-provider-session"}); eventErr != nil {
 						return e.block(ctx, m, report, eventErr)
 					}
 					harnessSession, err = current.Start(packet)

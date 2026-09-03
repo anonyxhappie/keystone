@@ -2,9 +2,12 @@
 
 ## Unreleased (latest)
 
-Rich streaming terminal UI, interactive user prompts, and retry harness preservation:
-- Rich Terminal UI: Built `internal/ui` renderer displaying styled Keystone project banners, ANSI-colored lifecycle transitions, elapsed timestamps, and beautifully formatted executive report cards with clear status pills (`RUN COMPLETE`, `RUN STOPPED`, `RUN BLOCKED`).
-- Live Real-Time Streaming: Engine streams lifecycle events and harness observations (tool calls, commands, file touches, and completion claims) live to stdout as they occur, eliminating monolithic silent pauses.
+Persistent interactive terminal shell, slash commands, harness session discovery, and streaming UI:
+- Interactive Terminal REPL: Running `keystone` without arguments (or with `--harness <name>`) launches a persistent interactive shell (like Claude Code / Antigravity) with prompt input (`keystone> `) that remains open across turns until the user manually exits (`/exit`).
+- Slash Command Engine: Built-in slash commands support `/help`, `/sessions` (list conversations across harnesses), `/resume <#|id>` (resume existing conversations), `/new` (start fresh conversation), `/harness <name>` (switch active harness), `/projects` (list local code projects), `/project <#|path>` (switch active workspace), `/status`, `/verify`, `/review`, `/clear`, and `/exit`.
+- Harness Session & Project Discovery (`internal/session`): Auto-discovers and indexes previous conversations and workspaces across local Keystone runs, Antigravity (`~/.gemini/antigravity-cli/`), and Codex (`~/.codex/`).
+- Real-Time Assistant Streaming: Streams assistant thoughts, audit reports, tool calls, and completions live to stdout with clean indentation and styling.
+- Rich Terminal UI (`internal/ui`): Displays styled Keystone project banners, ANSI-colored lifecycle transitions, elapsed timestamps, and beautifully formatted executive report cards with clear status pills (`RUN COMPLETE`, `RUN STOPPED`, `RUN BLOCKED`).
 - Concise Failure Diagnostics: Validations cleanly extract and format actionable root-cause blockers (e.g. unreachable local services, git style issues) without dumping unformatted stack traces.
 - Interactive Approval & Prompts: Interactive CLI prompt when an action requires approval (`ASK` / `REQUIRE_APPROVAL`), allowing the user to approve continuation directly in the terminal (`[y/N]`).
 - Programmatic Output (`--json`): Added `--json` flag to `keystone run` for machine-readable automation, CI pipelines, and tooling.

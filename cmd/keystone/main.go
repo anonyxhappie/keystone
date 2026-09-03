@@ -18,6 +18,7 @@ import (
 	"github.com/anonyxhappie/keystone/internal/observation"
 	"github.com/anonyxhappie/keystone/internal/policy"
 	"github.com/anonyxhappie/keystone/internal/project"
+	"github.com/anonyxhappie/keystone/internal/repl"
 	"github.com/anonyxhappie/keystone/internal/runtime"
 	"github.com/anonyxhappie/keystone/internal/state"
 	"github.com/anonyxhappie/keystone/internal/ui"
@@ -38,10 +39,27 @@ func main() {
 		root, _ = os.Getwd()
 	}
 	if len(args) < 1 {
-		usage()
+		runREPL(root, "")
 		return
 	}
+
+	if len(args) == 2 && (args[0] == "--harness" || args[0] == "-harness") {
+		runREPL(root, args[1])
+		return
+	}
+	if len(args) == 1 && (strings.HasPrefix(args[0], "--harness=") || strings.HasPrefix(args[0], "-harness=")) {
+		val := strings.TrimPrefix(strings.TrimPrefix(args[0], "--harness="), "-harness=")
+		runREPL(root, val)
+		return
+	}
+
 	switch args[0] {
+	case "repl", "interactive", "shell":
+		harnessArg := ""
+		if len(args) > 1 {
+			harnessArg = args[1]
+		}
+		runREPL(root, harnessArg)
 	case "init":
 		runInit(root)
 	case "status":
@@ -66,16 +84,33 @@ func main() {
 		runReplay(root, args[1:])
 	case "doctor":
 		runDoctor(root)
-	case "version":
+	case "version", "--version", "-v":
 		fmt.Println(version)
-	default:
+	case "help", "--help", "-h":
 		usage()
-		os.Exit(2)
+	default:
+		runRun(root, args)
+	}
+}
+
+func runREPL(root, defaultHarness string) {
+	r := repl.New(root, defaultHarness, os.Stdin, os.Stdout)
+	if err := r.Run(); err != nil {
+		fatal(err)
 	}
 }
 
 func usage() {
-	fmt.Println("keystone init | status | ask <request> | run <request> | continue | pause | approve | stop | validate | review | replay <run-id> | doctor | version")
+	fmt.Println("Usage:")
+	fmt.Println("  keystone                              Start interactive terminal shell (Claude Code / Antigravity style)")
+	fmt.Println("  keystone --harness <name>             Start interactive terminal shell with specified harness")
+	fmt.Println("  keystone run [--harness <name>] <req> Execute a single supervised request")
+	fmt.Println("  keystone status                       Inspect current project status")
+	fmt.Println("  keystone validate                     Run deterministic validation checks")
+	fmt.Println("  keystone review                       Inspect supervisor review findings")
+	fmt.Println("  keystone replay <run-id>              Replay events of a run")
+	fmt.Println("  keystone doctor                       Check environment and harnesses")
+	fmt.Println("  keystone version                      Print version")
 }
 
 func runInit(root string) {

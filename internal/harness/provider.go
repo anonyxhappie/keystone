@@ -525,19 +525,17 @@ func classifyProviderEvent(provider, eventType string, raw map[string]any) (stri
 		}
 		if strings.Contains(stepType, "agent") || strings.Contains(stepType, "response") || firstString(raw, "text_delta", "text", "response") != "" {
 			message := firstString(raw, "text_delta", "text", "response", "message")
-			return classify(message), message
+			if message != "" {
+				return "AGENT_RESPONSE", message
+			}
 		}
-		return "MESSAGE_RECEIVED", providerSummary(raw, "Antigravity step update")
+		return "STEP_UPDATE", providerSummary(raw, "step update")
 	case "result", "conversation.completed", "turn.completed":
 		message := firstString(raw, "response", "result", "message", "text")
 		if message == "" {
 			message = "Antigravity conversation completed"
 		}
-		typ := classify(message)
-		if typ == "MESSAGE_RECEIVED" && strings.EqualFold(firstString(raw, "status"), "success") {
-			typ = "COMPLETION_CLAIM"
-		}
-		return typ, message
+		return "COMPLETION_CLAIM", message
 	case "error", "failed", "turn.failed":
 		return "ERROR", providerSummary(raw, "Antigravity reported an error")
 	default:

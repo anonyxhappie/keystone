@@ -153,7 +153,30 @@ func (t *Terminal) OnObservation(obs domain.Observation) {
 	case "FILE_TOUCHED":
 		fmt.Fprintf(t.out, "   %s %s %s\n", ts, t.color(Green, "↳ 📄"), obs.Summary)
 	case "COMPLETION_CLAIM":
-		fmt.Fprintf(t.out, "   %s %s %s\n", ts, t.color(Bold+Cyan, "↳ 💬"), t.color(Italic, obs.Summary))
+		lines := strings.Split(strings.TrimSpace(obs.Summary), "\n")
+		if len(lines) == 1 && len(obs.Summary) <= 120 {
+			fmt.Fprintf(t.out, "   %s %s %s\n", ts, t.color(Bold+Cyan, "↳ 💬"), t.color(Italic, obs.Summary))
+		} else {
+			fmt.Fprintf(t.out, "   %s %s\n", ts, t.color(Bold+Cyan, "↳ 💬 Assistant:"))
+			for _, line := range lines {
+				lineTrimmed := strings.TrimRight(line, " \t\r")
+				if lineTrimmed != "" {
+					fmt.Fprintf(t.out, "     %s\n", lineTrimmed)
+				} else {
+					fmt.Fprintln(t.out)
+				}
+			}
+		}
+	case "MESSAGE_RECEIVED", "AGENT_RESPONSE":
+		lines := strings.Split(strings.TrimSpace(obs.Summary), "\n")
+		for _, line := range lines {
+			lineTrimmed := strings.TrimRight(line, " \t\r")
+			if lineTrimmed != "" {
+				fmt.Fprintf(t.out, "   %s %s\n", t.color(Cyan, "│"), lineTrimmed)
+			} else {
+				fmt.Fprintln(t.out)
+			}
+		}
 	case "SESSION_STARTED":
 		fmt.Fprintf(t.out, "   %s %s %s\n", ts, t.color(Blue, "↳ 🔗"), obs.Summary)
 	case "STDOUT":

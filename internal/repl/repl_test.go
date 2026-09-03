@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/anonyxhappie/keystone/internal/domain"
 	"github.com/anonyxhappie/keystone/internal/harness"
@@ -83,22 +82,17 @@ func TestREPLSlashCommands(t *testing.T) {
 func TestREPLExecutePrompt(t *testing.T) {
 	root := setupTestProject(t)
 
-	// Inject a previous session
-	sessDir := filepath.Join(root, state.Dir, "harness-sessions")
-	_ = os.MkdirAll(sessDir, 0755)
-	hs := domain.HarnessSession{
-		ID:        "SES-EXISTING-1",
-		HarnessID: "test-harness",
-		RunID:     "RUN-1",
-		Status:    domain.StatusCompleted,
-		StartedAt: time.Now().UTC(),
-	}
-	d, _ := json.Marshal(hs)
-	_ = os.WriteFile(filepath.Join(sessDir, "SES-EXISTING-1.json"), d, 0600)
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	codexDir := filepath.Join(tempHome, ".codex")
+	_ = os.MkdirAll(codexDir, 0755)
+	indexLine := `{"id":"SES-EXISTING-1","thread_name":"Existing Test Thread","updated_at":"2026-03-13T15:28:39Z"}` + "\n"
+	_ = os.WriteFile(filepath.Join(codexDir, "session_index.jsonl"), []byte(indexLine), 0600)
 
 	input := strings.Join([]string{
 		"/sessions",
 		"/resume 1",
+		"/harness auto",
 		"inspect the codebase",
 		"/exit",
 	}, "\n") + "\n"

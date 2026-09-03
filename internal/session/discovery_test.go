@@ -1,47 +1,35 @@
 package session
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
-
-	"github.com/anonyxhappie/keystone/internal/domain"
-	"github.com/anonyxhappie/keystone/internal/state"
 )
 
 func TestDiscoverSessions(t *testing.T) {
-	root := t.TempDir()
-	sessDir := filepath.Join(root, state.Dir, "harness-sessions")
-	if err := os.MkdirAll(sessDir, 0755); err != nil {
-		t.Fatal(err)
-	}
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
 
-	session := domain.HarnessSession{
-		ID:        "test-session-123",
-		HarnessID: "antigravity",
-		RunID:     "RUN-1",
-		Status:    domain.StatusCompleted,
-		StartedAt: time.Now().UTC(),
-	}
-	data, _ := json.Marshal(session)
-	if err := os.WriteFile(filepath.Join(sessDir, "test-session-123.json"), data, 0600); err != nil {
-		t.Fatal(err)
-	}
+	codexDir := filepath.Join(tempHome, ".codex")
+	_ = os.MkdirAll(codexDir, 0755)
+	indexLine := `{"id":"019c3d2f-b087-7503-bc5e-670103f5f67e","thread_name":"Draft Agentic RAG specification","updated_at":"2026-03-13T15:28:39Z"}` + "\n"
+	_ = os.WriteFile(filepath.Join(codexDir, "session_index.jsonl"), []byte(indexLine), 0600)
 
-	sessions := DiscoverSessions(root)
+	sessions := DiscoverSessions(tempHome)
 	found := false
 	for _, s := range sessions {
-		if s.ID == "test-session-123" {
+		if s.ID == "019c3d2f-b087-7503-bc5e-670103f5f67e" {
 			found = true
-			if s.Harness != "antigravity" {
-				t.Fatalf("expected harness antigravity, got %q", s.Harness)
+			if s.Title != "Draft Agentic RAG specification" {
+				t.Fatalf("expected title 'Draft Agentic RAG specification', got %q", s.Title)
+			}
+			if s.Harness != "codex" {
+				t.Fatalf("expected harness codex, got %q", s.Harness)
 			}
 		}
 	}
 	if !found {
-		t.Fatalf("expected to discover test-session-123, got: %+v", sessions)
+		t.Fatalf("expected to discover codex session, got: %+v", sessions)
 	}
 }
 

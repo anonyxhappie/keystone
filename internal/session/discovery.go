@@ -5,16 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/anonyxhappie/keystone/internal/domain"
-	"github.com/anonyxhappie/keystone/internal/state"
 )
 
 // Session describes a conversation session from Keystone or a harness.
@@ -41,16 +37,7 @@ func DiscoverSessions(workspaceRoot string) []Session {
 	all := []Session{}
 	seen := map[string]bool{}
 
-	// 1. Keystone local project sessions
-	keystoneSessions := discoverKeystoneSessions(workspaceRoot)
-	for _, s := range keystoneSessions {
-		if !seen[s.ID] {
-			seen[s.ID] = true
-			all = append(all, s)
-		}
-	}
-
-	// 2. Antigravity conversations
+	// 1. Antigravity conversations (real names & titles)
 	agySessions := discoverAntigravitySessions(workspaceRoot)
 	for _, s := range agySessions {
 		if !seen[s.ID] {
@@ -59,7 +46,7 @@ func DiscoverSessions(workspaceRoot string) []Session {
 		}
 	}
 
-	// 3. Codex sessions
+	// 2. Codex sessions (real thread names)
 	codexSessions := discoverCodexSessions(workspaceRoot)
 	for _, s := range codexSessions {
 		if !seen[s.ID] {
@@ -81,41 +68,6 @@ func DiscoverSessions(workspaceRoot string) []Session {
 	return all
 }
 
-func discoverKeystoneSessions(root string) []Session {
-	var list []Session
-	sessionDir := filepath.Join(root, state.Dir, "harness-sessions")
-	entries, err := os.ReadDir(sessionDir)
-	if err != nil {
-		return list
-	}
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(sessionDir, entry.Name()))
-		if err != nil {
-			continue
-		}
-		var hs domain.HarnessSession
-		if err := json.Unmarshal(data, &hs); err != nil {
-			continue
-		}
-		modTime := hs.StartedAt
-		if info, err := entry.Info(); err == nil && modTime.IsZero() {
-			modTime = info.ModTime()
-		}
-		title := fmt.Sprintf("Keystone Run (%s)", hs.Status)
-		list = append(list, Session{
-			ID:           hs.ID,
-			Harness:      hs.HarnessID,
-			Title:        title,
-			Workspace:    root,
-			LastModified: modTime,
-		})
-	}
-	return list
-}
-
 func discoverAntigravitySessions(workspaceRoot string) []Session {
 	var list []Session
 	home, err := os.UserHomeDir()
@@ -126,7 +78,7 @@ func discoverAntigravitySessions(workspaceRoot string) []Session {
 	dbPath := filepath.Join(home, ".gemini", "antigravity-cli", "conversation_summaries.db")
 	if _, err := os.Stat(dbPath); err == nil {
 		// Use sqlite3 CLI if available
-		query := "SELECT conversation_id, title, preview, workspace_uris, datetime(last_modified_time) FROM conversation_summaries ORDER BY last_modified_time DESC LIMIT 30;"
+		query := "SELECT conversation_id, title, preview, workspace_uris, datetime(last_modified_time) FROM conversation_summaries ORDER BY last_modified_time DESC LIMIT 50;"
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(ctx, "sqlite3", "-separator", "|", dbPath, query)
@@ -136,16 +88,22 @@ func discoverAntigravitySessions(workspaceRoot string) []Session {
 			for scanner.Scan() {
 				parts := strings.Split(scanner.Text(), "|")
 				if len(parts) >= 5 {
-					cid := parts[0]
-					title := parts[1]
-					preview := parts[2]
-					ws := parts[3]
-					timeStr := parts[4]
-					if title == "" {
-						title = preview
+					cid := strings.TrimSpace(parts[0])
+					title := strings.TrimSpace(parts[1])
+					preview := strings.TrimSpace(parts[2])
+					ws := strings.TrimSpace(parts[3])
+					timeStr := strings.TrimSpace(parts[4])
+
+					if strings.Contains(preview, "This version of Antigravity CLI is no longer supported") {
+						continue
 					}
-					if title == "" {
-						title = "Antigravity Conversation"
+
+					name := title
+					if name == "" {
+						name = preview
+					}
+					if name == "" {
+						name = "Antigravity Session " + cid[:8]
 					}
 					var t time.Time
 					for _, layout := range []string{
@@ -164,7 +122,7 @@ func discoverAntigravitySessions(workspaceRoot string) []Session {
 					list = append(list, Session{
 						ID:           cid,
 						Harness:      "antigravity",
-						Title:        title,
+						Title:        name,
 						Preview:      preview,
 						Workspace:    ws,
 						LastModified: t,

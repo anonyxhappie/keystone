@@ -220,31 +220,31 @@ func (r *REPL) handleListSessions() {
 	sessions := session.DiscoverSessions(r.root)
 	r.cachedSessions = sessions
 	if len(sessions) == 0 {
-		fmt.Fprintf(r.out, "No prior sessions found for Keystone or local harnesses.\n\n")
+		fmt.Fprintf(r.out, "No prior sessions found for local harnesses.\n\n")
 		return
 	}
 
-	fmt.Fprintf(r.out, "\n%s\n", ui.Bold+"Recent Conversations & Sessions:"+ui.Reset)
-	fmt.Fprintf(r.out, "%-4s %-12s %-38s %s\n", "#", "Harness", "Session ID", "Title / Preview")
-	fmt.Fprintln(r.out, strings.Repeat("─", 80))
+	items := make([]ui.SelectItem, len(sessions))
+	for i, s := range sessions {
+		shortID := s.ID
+		if len(shortID) > 8 {
+			shortID = shortID[:8]
+		}
+		items[i] = ui.SelectItem{
+			Title:       s.Title,
+			Description: fmt.Sprintf("[%s] %s", s.Harness, shortID),
+			Active:      s.ID == r.sessionID,
+		}
+	}
 
-	limit := len(sessions)
-	if limit > 15 {
-		limit = 15
+	idx, _ := ui.Select(r.in, r.out, "Recent Conversations & Sessions:", items)
+	if idx >= 0 && idx < len(sessions) {
+		s := sessions[idx]
+		r.sessionID = s.ID
+		r.harness = s.Harness
+		fmt.Fprintf(r.out, "%s Resumed session #%d: %s (%s: %s)\n\n", ui.Green+"✔"+ui.Reset, idx+1, s.ID, s.Harness, s.Title)
+		return
 	}
-	for i := 0; i < limit; i++ {
-		s := sessions[i]
-		activeMark := " "
-		if s.ID == r.sessionID {
-			activeMark = "*"
-		}
-		title := s.Title
-		if len(title) > 40 {
-			title = title[:37] + "..."
-		}
-		fmt.Fprintf(r.out, "%s%-3d %-12s %-38s %s\n", activeMark, i+1, ui.Cyan+s.Harness+ui.Reset, s.ID, ui.Dim+title+ui.Reset)
-	}
-	fmt.Fprintf(r.out, "\nType %s to resume any session.\n\n", ui.Bold+"/resume <#|id>"+ui.Reset)
 }
 
 func (r *REPL) handleResume(args []string) {
@@ -278,24 +278,30 @@ func (r *REPL) handleResume(args []string) {
 func (r *REPL) handleListProjects() {
 	projects := session.DiscoverProjects(r.root)
 	r.cachedProjects = projects
-
-	fmt.Fprintf(r.out, "\n%s\n", ui.Bold+"Local Code Projects:"+ui.Reset)
-	fmt.Fprintf(r.out, "%-4s %-24s %s\n", "#", "Project Name", "Path")
-	fmt.Fprintln(r.out, strings.Repeat("─", 70))
-
-	limit := len(projects)
-	if limit > 15 {
-		limit = 15
+	if len(projects) == 0 {
+		fmt.Fprintf(r.out, "No local projects found.\n\n")
+		return
 	}
-	for i := 0; i < limit; i++ {
-		p := projects[i]
-		activeMark := " "
-		if p.Active {
-			activeMark = "*"
+
+	items := make([]ui.SelectItem, len(projects))
+	for i, p := range projects {
+		items[i] = ui.SelectItem{
+			Title:       p.Name,
+			Description: p.Path,
+			Active:      p.Active,
 		}
-		fmt.Fprintf(r.out, "%s%-3d %-24s %s\n", activeMark, i+1, ui.Bold+p.Name+ui.Reset, ui.Dim+p.Path+ui.Reset)
 	}
-	fmt.Fprintf(r.out, "\nType %s to switch workspace.\n\n", ui.Bold+"/project <#|path>"+ui.Reset)
+
+	idx, _ := ui.Select(r.in, r.out, "Local Code Projects:", items)
+	if idx >= 0 && idx < len(projects) {
+		p := projects[idx]
+		r.root = p.Path
+		r.sessionID = ""
+		r.cachedProjects = session.DiscoverProjects(r.root)
+		r.cachedSessions = session.DiscoverSessions(r.root)
+		fmt.Fprintf(r.out, "%s Switched active workspace to: %s\n\n", ui.Green+"✔"+ui.Reset, p.Path)
+		return
+	}
 }
 
 func (r *REPL) handleSwitchProject(args []string) {
@@ -323,12 +329,14 @@ func (r *REPL) handleSwitchProject(args []string) {
 		return
 	}
 	if info, err := os.Stat(absPath); err != nil || !info.IsDir() {
-		fmt.Fprintf(r.out, "%s Directory does not exist: %s\n\n", ui.Red+"✘"+ui.Reset, absPath)
+		fmt.Fprintf(r.out, "%s Path does not exist or is not a directory: %s\n\n", ui.Red+"✘"+ui.Reset, absPath)
 		return
 	}
 
 	r.root = absPath
 	r.sessionID = "" // reset conversation on workspace switch
+	r.cachedProjects = session.DiscoverProjects(r.root)
+	r.cachedSessions = session.DiscoverSessions(r.root)
 	fmt.Fprintf(r.out, "%s Switched active workspace to: %s\n\n", ui.Green+"✔"+ui.Reset, ui.Bold+r.root+ui.Reset)
 }
 
@@ -545,9 +553,9 @@ func (r *REPL) provideSuggestions(input string) []ui.CommandItem {
 		return nil
 	}
 
-	// 1. /project or /cd with space
-	if strings.HasPrefix(input, "/project ") || strings.HasPrefix(input, "/cd ") {
-		query := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(input, "/project "), "/cd ")))
+	// 1. /project, /projects, or /cd with space
+	if strings.HasPrefix(input, "/project ") || strings.HasPrefix(input, "/projects ") || strings.HasPrefix(input, "/cd ") {
+		query := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(input, "/projects "), "/project "), "/cd ")))
 		if len(r.cachedProjects) == 0 {
 			r.cachedProjects = session.DiscoverProjects(r.root)
 		}
@@ -569,9 +577,9 @@ func (r *REPL) provideSuggestions(input string) []ui.CommandItem {
 		return items
 	}
 
-	// 2. /resume or /continue with space
-	if strings.HasPrefix(input, "/resume ") || strings.HasPrefix(input, "/continue ") {
-		query := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(input, "/resume "), "/continue ")))
+	// 2. /resume, /sessions, or /continue with space
+	if strings.HasPrefix(input, "/resume ") || strings.HasPrefix(input, "/sessions ") || strings.HasPrefix(input, "/continue ") {
+		query := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(input, "/sessions "), "/resume "), "/continue ")))
 		if len(r.cachedSessions) == 0 {
 			r.cachedSessions = session.DiscoverSessions(r.root)
 		}
@@ -586,11 +594,15 @@ func (r *REPL) provideSuggestions(input string) []ui.CommandItem {
 			if len(shortID) > 8 {
 				shortID = shortID[:8]
 			}
-			label := fmt.Sprintf("%d. %s (%s)", i+1, s.Harness, shortID)
+			label := fmt.Sprintf("%d. %s", i+1, s.Title)
+			if len(label) > 36 {
+				label = label[:33] + "..."
+			}
+			desc := fmt.Sprintf("[%s] %s", s.Harness, shortID)
 			if query == "" || strings.Contains(strings.ToLower(s.Title), query) || strings.Contains(strings.ToLower(s.ID), query) || strings.Contains(strings.ToLower(s.Harness), query) {
 				items = append(items, ui.CommandItem{
 					Command:     label,
-					Description: s.Title,
+					Description: desc,
 					InsertText:  fmt.Sprintf("/resume %d", i+1),
 					Immediate:   true,
 				})

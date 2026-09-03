@@ -42,7 +42,7 @@ func TestCLIAuditAll13Commands(t *testing.T) {
 	out := captureOutput(func() {
 		fmt.Println(version)
 	})
-	if strings.TrimSpace(out) != "2.1.0" {
+	if strings.TrimSpace(out) != "2.1.1" {
 		t.Fatalf("unexpected version output: %q", out)
 	}
 
@@ -61,7 +61,7 @@ func TestCLIAuditAll13Commands(t *testing.T) {
 	out = captureOutput(func() {
 		runDoctor(root)
 	})
-	if !strings.Contains(out, "harnesses") || !strings.Contains(out, "2.1.0") {
+	if !strings.Contains(out, "harnesses") || !strings.Contains(out, "2.1.1") {
 		t.Fatalf("doctor output unexpected: %q", out)
 	}
 

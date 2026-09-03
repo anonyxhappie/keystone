@@ -1,7 +1,7 @@
 {
   "schemaVersion": "2",
   "branch": "main",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "sourceOfTruth": "executable code and tests",
   "evidence": {
     "automatedGates": ["go test -v ./...", "go vet ./...", "go test -race ./...", "go build -o keystone ./cmd/keystone"],
@@ -23,7 +23,7 @@
     {"name":"bounded full-auto retry, pause, approval, stop","implementation":["internal/control","cmd/keystone"],"tests":["internal/control/engine_test.go","cmd/keystone/main_test.go"],"status":"IMPLEMENTED"},
     {"name":"learning candidate lifecycle","implementation":["internal/learning","internal/control/engine.go"],"tests":["internal/learning/store_test.go"],"status":"IMPLEMENTED"},
     {"name":"checkpoint-safe harness switching","implementation":["internal/control/engine.go","internal/harness"],"tests":["internal/control/engine_test.go","internal/control/scenarios_test.go"],"status":"IMPLEMENTED"},
-    {"name":"project intelligence and impact-aware context","implementation":["internal/project","internal/context"],"tests":["internal/project/detect_test.go","internal/context/compiler_test.go"],"status":"IMPLEMENTED"},
+    {"name":"project intelligence and impact-aware context","implementation":["internal/project","internal/context"],"tests":["internal/project/detect_test.go","internal/context/compiler_test.go"],"status":"IMPLEMENTED","notes":"Progressive context budget re-planning, deterministic structural outline compression, task-aware ranking, and decision audit trail verified."},
     {"name":"release, deployment, environment and incident state","implementation":["internal/delivery","internal/domain"],"tests":["internal/delivery/store_test.go"],"status":"IMPLEMENTED"},
     {"name":"complete CLI audit across all 13 commands","implementation":["cmd/keystone"],"tests":["cmd/keystone/main_test.go"],"status":"IMPLEMENTED"},
     {"name":"configured CI/browser/operational integrations","implementation":["internal/validation","internal/harness","internal/delivery"],"tests":["internal/validation/runner_test.go","internal/delivery/store_test.go"],"status":"PARTIAL","limitation":"Remote service observations and production execution require an explicitly configured adapter or command."},
@@ -31,5 +31,5 @@
     {"name":"cross-process live harness registry","implementation":["internal/control","cmd/keystone"],"tests":["internal/control/engine_test.go"],"status":"PARTIAL","limitation":"Pause is a durable control marker; no daemon or PID registry is required by the local-first core."}
   ],
   "releaseReady": true,
-  "releaseReadyRationale": "All V2 core requirements, real provider bridges (Antigravity and Codex), supervisor findings, full lifecycle state machine, durable replay, and all 13 CLI commands have passed automated unit, integration, and live smoke tests. Ready for v2.1.0 release."
+  "releaseReadyRationale": "All V2 core requirements, real provider bridges (Antigravity and Codex), supervisor findings, full lifecycle state machine, durable replay, progressive context budget re-planning, and all 13 CLI commands have passed automated unit, integration, and live dogfood tests. Ready for v2.1.1 release."
 }

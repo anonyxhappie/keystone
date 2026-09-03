@@ -1,6 +1,6 @@
 # Keystone V2 implementation status
 
-This matrix is an audit of executable behavior on `main` for release `v2.1.0`. A capability is not marked implemented solely because a type or interface exists.
+This matrix is an audit of executable behavior on `main` for release `v2.1.1`. A capability is not marked implemented solely because a type or interface exists.
 
 | Capability | Implementation | Executable verification | Status |
 |---|---|---|---|
@@ -18,11 +18,11 @@ This matrix is an audit of executable behavior on `main` for release `v2.1.0`. A
 | Checkpointed continuation and approval gate | `internal/checkpoint`, `internal/control` | continuation approval, high-risk policy gating, and recovery tests | IMPLEMENTED |
 | Learning candidate lifecycle | `internal/learning` and engine findings | candidate transition and learning lifecycle test | IMPLEMENTED |
 | Harness switching | adapter factory, durable checkpoint, and switch event | multi-harness switching test preserving work order, context manifest, evidence, findings, and decisions | IMPLEMENTED |
-| Impact-aware project context | `internal/project`, `internal/context` | context ranking, instruction injection, and budget enforcement tests | IMPLEMENTED |
+| Impact-aware project context | `internal/project`, `internal/context` | context ranking, instruction injection, progressive budget re-planning, deterministic structural outline compression, and decision audit trail tests | IMPLEMENTED |
 | Release/deployment/incident modeling | `internal/delivery` | production deployment, policy gating, and incident traceability tests | IMPLEMENTED |
 | Complete CLI audit | `cmd/keystone` | all 13 subcommands (`init`, `status`, `ask`, `run`, `continue`, `pause`, `approve`, `stop`, `validate`, `review`, `replay`, `doctor`, `version`) verified in integration suite | IMPLEMENTED |
 | CI/browser/operational adapters | local command validation and configurable process boundary; delivery policy state | validation and delivery tests; remote cloud execution remains an explicit adapter boundary | PARTIAL |
 | Semantic architecture/requirement review | deterministic inputs exist; no model adapter | review input only; model judgment belongs behind capabilities | PARTIAL |
 | Cross-process pause of a live harness | durable control marker and polling observer | live local-process pause integration test; no daemon/PID registry required by local-first architecture | PARTIAL |
 
-The PARTIAL entries are explicit local-first boundaries, not broken capabilities. Keystone fails closed when external or remote authority is required. All core capabilities, real provider bridges (Antigravity and Codex), and release verification criteria are satisfied for release `v2.1.0`.
+The PARTIAL entries are explicit local-first boundaries, not broken capabilities. Keystone fails closed when external or remote authority is required. All core capabilities, real provider bridges (Antigravity and Codex), and release verification criteria are satisfied for release `v2.1.1`.

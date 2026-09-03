@@ -22,6 +22,7 @@ import (
 	"github.com/anonyxhappie/keystone/internal/learning"
 	"github.com/anonyxhappie/keystone/internal/observation"
 	"github.com/anonyxhappie/keystone/internal/policy"
+	"github.com/anonyxhappie/keystone/internal/project"
 	"github.com/anonyxhappie/keystone/internal/prompt"
 	"github.com/anonyxhappie/keystone/internal/runtime"
 	"github.com/anonyxhappie/keystone/internal/state"
@@ -87,9 +88,16 @@ var ErrPaused = errors.New("run paused by explicit control request")
 func Open(root string) (*Engine, error) {
 	s := state.New(root)
 	if !s.Initialized() {
-		var project domain.Project
-		if err := s.Read("project.json", &project); err != nil {
-			return nil, fmt.Errorf("Keystone is not initialized: %w", err)
+		var p domain.Project
+		if err := s.Read("project.json", &p); err != nil {
+			caps := project.Detect(root)
+			proj, initErr := s.Init(filepath.Base(root), caps)
+			if initErr != nil {
+				return nil, fmt.Errorf("auto-init project: %w", initErr)
+			}
+			if writeErr := s.Write("project.json", proj); writeErr != nil {
+				return nil, fmt.Errorf("write project.json: %w", writeErr)
+			}
 		}
 	}
 	j, err := observation.Open(filepath.Join(root, state.Dir, "events.jsonl"))

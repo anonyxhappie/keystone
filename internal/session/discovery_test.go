@@ -54,3 +54,25 @@ func TestDiscoverProjects(t *testing.T) {
 		t.Fatalf("expected projA to be active, got: %+v", projects)
 	}
 }
+
+func TestMatchesWorkspace(t *testing.T) {
+	tests := []struct {
+		sessionWs string
+		targetWs  string
+		expected  bool
+	}{
+		{"/Users/akshay/Desktop/code/keystone", "/Users/akshay/Desktop/code/keystone", true},
+		{"file:///Users/akshay/Desktop/code/keystone", "/Users/akshay/Desktop/code/keystone", true},
+		{`["file:///Users/akshay/Desktop/code/keystone"]`, "/Users/akshay/Desktop/code/keystone", true},
+		{`["file:///Users/akshay/Desktop/code/losal"]`, "/Users/akshay/Desktop/code/keystone", false},
+		{"/Users/akshay/Desktop/code/losal", "/Users/akshay/Desktop/code/keystone", false},
+		{"", "/Users/akshay/Desktop/code/keystone", false},
+		{"/Users/akshay/Desktop/code/keystone", "", true},
+	}
+	for _, tc := range tests {
+		got := matchesWorkspace(tc.sessionWs, tc.targetWs)
+		if got != tc.expected {
+			t.Errorf("matchesWorkspace(%q, %q) = %v; want %v", tc.sessionWs, tc.targetWs, got, tc.expected)
+		}
+	}
+}

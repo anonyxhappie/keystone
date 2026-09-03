@@ -405,6 +405,9 @@ func (a *CLIAdapter) args(prompt, resumeSession string) []string {
 			if !hasArg(args, "--cd") && !hasArg(args, "-C") {
 				args = append(args, "--cd", a.Root)
 			}
+			if !hasArg(args, "--model") && !hasArg(args, "-m") && a.Config.Model != "" && a.Config.Model != "auto" {
+				args = append(args, "--model", a.Config.Model)
+			}
 			args = append(args, prompt)
 		}
 	case "antigravity":
@@ -417,6 +420,9 @@ func (a *CLIAdapter) args(prompt, resumeSession string) []string {
 		}
 		if !hasArg(args, "--dangerously-skip-permissions") {
 			args = append(args, "--dangerously-skip-permissions")
+		}
+		if a.Config.Model != "" && a.Config.Model != "auto" && !hasArg(args, "--model") {
+			args = append(args, "--model", a.Config.Model)
 		}
 		if resumeSession != "" && !hasArg(args, "--conversation") {
 			args = append(args, "--conversation", resumeSession)

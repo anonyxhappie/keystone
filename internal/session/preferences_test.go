@@ -15,6 +15,7 @@ func TestPreferencesRoundTrip(t *testing.T) {
 
 	SetLastHarness("/path/to/project", "antigravity")
 	SetLastSession("/path/to/project", "sess-12345")
+	SetLastModel("/path/to/project", "gemini-3.8-flash-high")
 
 	loadedHarness := GetLastHarness("/path/to/project")
 	if loadedHarness != "antigravity" {
@@ -24,5 +25,14 @@ func TestPreferencesRoundTrip(t *testing.T) {
 	loadedSession := GetLastSession("/path/to/project")
 	if loadedSession != "sess-12345" {
 		t.Errorf("expected sess-12345, got %q", loadedSession)
+	}
+
+	loadedModel := GetLastModel("/path/to/project", "antigravity")
+	if loadedModel != "gemini-3.8-flash-high" {
+		t.Errorf("expected gemini-3.8-flash-high, got %q", loadedModel)
+	}
+	disp := ModelDisplayName(loadedModel, "antigravity")
+	if disp != "Gemini 3.8 Flash (High)" {
+		t.Errorf("expected Gemini 3.8 Flash (High), got %q", disp)
 	}
 }

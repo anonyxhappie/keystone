@@ -23,6 +23,7 @@ type Config struct {
 	Args           []string `json:"args,omitempty"`
 	Capabilities   []string `json:"capabilities,omitempty"`
 	TimeoutSeconds int      `json:"timeoutSeconds,omitempty"`
+	Model          string   `json:"model,omitempty"`
 }
 
 func LoadConfig(root string) (Config, error) {

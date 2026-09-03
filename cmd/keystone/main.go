@@ -25,42 +25,83 @@ import (
 	"github.com/anonyxhappie/keystone/internal/ui"
 	"github.com/anonyxhappie/keystone/internal/validation"
 	"github.com/anonyxhappie/keystone/internal/work"
+	"golang.org/x/term"
 )
 
 const version = "2.1.3"
 
+func parseFlags(args []string) (root, harness, model string, remaining []string) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if (arg == "-C" || arg == "--root") && i+1 < len(args) {
+			root = args[i+1]
+			i++
+		} else if strings.HasPrefix(arg, "--root=") {
+			root = strings.TrimPrefix(arg, "--root=")
+		} else if (arg == "--harness" || arg == "-harness") && i+1 < len(args) {
+			harness = args[i+1]
+			i++
+		} else if strings.HasPrefix(arg, "--harness=") || strings.HasPrefix(arg, "-harness=") {
+			harness = strings.TrimPrefix(strings.TrimPrefix(arg, "--harness="), "-harness=")
+		} else if (arg == "--model" || arg == "-model" || arg == "-m") && i+1 < len(args) {
+			model = args[i+1]
+			i++
+		} else if strings.HasPrefix(arg, "--model=") || strings.HasPrefix(arg, "-model=") {
+			model = strings.TrimPrefix(strings.TrimPrefix(arg, "--model="), "-model=")
+		} else {
+			remaining = append(remaining, arg)
+		}
+	}
+	return
+}
+
+func ensureDefaultInit(root string) bool {
+	s := state.New(root)
+	if s.Initialized() {
+		return false
+	}
+	caps := project.Detect(root)
+	p, err := s.Init(filepath.Base(root), caps)
+	if err != nil {
+		return false
+	}
+	if err := s.Write("project.json", p); err != nil {
+		return false
+	}
+	j, err := observation.Open(filepath.Join(root, state.Dir, "events.jsonl"))
+	if err == nil {
+		_ = j.Append(observation.Event{
+			Type:        "PROJECT_INITIALIZED",
+			Source:      "system",
+			OperationID: fmt.Sprintf("auto-init:%d", time.Now().UnixNano()),
+			Payload:     map[string]any{"name": p.Name, "capabilities": caps, "auto": true},
+		})
+	}
+	return true
+}
+
 func main() {
-	args := os.Args[1:]
-	root := os.Getenv("KEYSTONE_ROOT")
-	if len(args) >= 2 && (args[0] == "-C" || args[0] == "--root") {
-		root = args[1]
-		args = args[2:]
+	parsedRoot, flagHarness, flagModel, args := parseFlags(os.Args[1:])
+	root := parsedRoot
+	if root == "" {
+		root = os.Getenv("KEYSTONE_ROOT")
 	}
 	if root == "" {
 		root, _ = os.Getwd()
 	}
-	if len(args) < 1 {
-		runREPL(root, "")
-		return
-	}
 
-	if len(args) == 2 && (args[0] == "--harness" || args[0] == "-harness") {
-		runREPL(root, args[1])
-		return
-	}
-	if len(args) == 1 && (strings.HasPrefix(args[0], "--harness=") || strings.HasPrefix(args[0], "-harness=")) {
-		val := strings.TrimPrefix(strings.TrimPrefix(args[0], "--harness="), "-harness=")
-		runREPL(root, val)
+	if len(args) < 1 {
+		runREPL(root, flagHarness, flagModel)
 		return
 	}
 
 	switch args[0] {
 	case "repl", "interactive", "shell":
-		harnessArg := ""
+		harnessArg := flagHarness
 		if len(args) > 1 {
 			harnessArg = args[1]
 		}
-		runREPL(root, harnessArg)
+		runREPL(root, harnessArg, flagModel)
 	case "init":
 		runInit(root)
 	case "status":
@@ -94,11 +135,36 @@ func main() {
 	}
 }
 
-func runREPL(root, defaultHarness string) {
-	if defaultHarness == "" {
-		defaultHarness = session.GetLastHarness(root)
+func runREPL(root, flagHarness, flagModel string) {
+	if ensureDefaultInit(root) {
+		fmt.Fprintf(os.Stdout, "%s Initialized default Keystone project state (.keystone/)\n\n", ui.Green+"✔"+ui.Reset)
 	}
-	r := repl.New(root, defaultHarness, os.Stdin, os.Stdout)
+
+	harness := flagHarness
+	model := flagModel
+
+	if term.IsTerminal(int(os.Stdin.Fd())) {
+		savedHarness := session.GetLastHarness(root)
+		if harness == "" {
+			harness = session.PromptHarness(os.Stdin, os.Stdout, savedHarness)
+		}
+		session.SetLastHarness(root, harness)
+
+		savedModel := session.GetLastModel(root, harness)
+		if model == "" {
+			model = session.PromptModel(os.Stdin, os.Stdout, harness, savedModel)
+		}
+		session.SetLastModel(root, model)
+	} else {
+		if harness == "" {
+			harness = session.GetLastHarness(root)
+		}
+		if model == "" {
+			model = session.GetLastModel(root, harness)
+		}
+	}
+
+	r := repl.New(root, harness, model, os.Stdin, os.Stdout)
 	if err := r.Run(); err != nil {
 		fatal(err)
 	}
@@ -140,6 +206,7 @@ func runInit(root string) {
 }
 
 func runStatus(root string) {
+	ensureDefaultInit(root)
 	var p domain.Project
 	if err := state.New(root).Read("project.json", &p); err != nil {
 		fatal(fmt.Errorf("Keystone is not initialized: %w", err))
@@ -158,6 +225,7 @@ func runStatus(root string) {
 }
 
 func runAsk(root string, args []string) {
+	ensureDefaultInit(root)
 	if len(args) == 0 {
 		fatal(fmt.Errorf("ask requires a request"))
 	}
@@ -211,6 +279,7 @@ func parseRunArgs(args []string) (harnessName string, jsonMode bool, request str
 }
 
 func runRun(root string, args []string) {
+	ensureDefaultInit(root)
 	harnessFlag, jsonMode, request, err := parseRunArgs(args)
 	if err != nil {
 		fatal(err)
@@ -398,6 +467,7 @@ func runStop(root string) {
 }
 
 func runValidate(root string) {
+	ensureDefaultInit(root)
 	var p domain.Project
 	if err := state.New(root).Read("project.json", &p); err != nil {
 		fatal(err)

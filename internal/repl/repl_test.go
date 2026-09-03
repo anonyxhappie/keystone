@@ -55,7 +55,7 @@ func TestREPLSlashCommands(t *testing.T) {
 	in := strings.NewReader(input)
 	var out bytes.Buffer
 
-	r := New(root, "antigravity", in, &out)
+	r := New(root, "antigravity", "", in, &out)
 	err := r.Run()
 	if err != nil {
 		t.Fatalf("unexpected REPL error: %v", err)
@@ -64,7 +64,7 @@ func TestREPLSlashCommands(t *testing.T) {
 	output := out.String()
 	for _, expected := range []string{
 		"Available Slash Commands",
-		"Active harness:",
+		"Select execution harness:",
 		"antigravity",
 		"Switched active harness to",
 		"codex",
@@ -100,7 +100,7 @@ func TestREPLExecutePrompt(t *testing.T) {
 	in := strings.NewReader(input)
 	var out bytes.Buffer
 
-	r := New(root, "auto", in, &out)
+	r := New(root, "auto", "", in, &out)
 	err := r.Run()
 	if err != nil {
 		t.Fatalf("unexpected REPL error: %v", err)

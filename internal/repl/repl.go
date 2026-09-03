@@ -23,10 +23,10 @@ import (
 	"github.com/anonyxhappie/keystone/internal/work"
 )
 
-// REPL manages the persistent interactive terminal session.
 type REPL struct {
 	root           string
 	harness        string
+	model          string
 	sessionID      string
 	term           *ui.Terminal
 	editor         *ui.PromptEditor
@@ -37,9 +37,12 @@ type REPL struct {
 }
 
 // New creates a new interactive REPL session.
-func New(root, defaultHarness string, in io.Reader, out io.Writer) *REPL {
+func New(root, defaultHarness, defaultModel string, in io.Reader, out io.Writer) *REPL {
 	if defaultHarness == "" {
 		defaultHarness = session.GetLastHarness(root)
+	}
+	if defaultModel == "" {
+		defaultModel = session.GetLastModel(root, defaultHarness)
 	}
 	lastSession := session.GetLastSession(root)
 	term := ui.New(out)
@@ -47,6 +50,7 @@ func New(root, defaultHarness string, in io.Reader, out io.Writer) *REPL {
 	r := &REPL{
 		root:      root,
 		harness:   defaultHarness,
+		model:     defaultModel,
 		sessionID: lastSession,
 		term:      term,
 		editor:    editor,
@@ -131,13 +135,17 @@ func mapNaturalCommand(input string) string {
 		return "/clear"
 	case "new", "new session", "start new conversation", "fresh conversation":
 		return "/new"
+	case "model", "models", "select model", "change model", "switch model":
+		return "/model"
+	case "harness", "select harness", "change harness", "switch harness":
+		return "/harness"
 	}
 	return ""
 }
 
 func (r *REPL) printWelcome() {
 	account := detectAccount()
-	modelInfo := detectModel(r.harness)
+	modelInfo := session.ModelDisplayName(r.model, r.harness)
 	ui.PrintBanner(r.out, r.root, r.harness, account, modelInfo)
 }
 
@@ -195,6 +203,8 @@ func (r *REPL) handleSlashCommand(input string) {
 		r.showHelp()
 	case "/harness":
 		r.handleHarness(args)
+	case "/model", "/models":
+		r.handleModel(args)
 	case "/sessions", "/conversations", "/history":
 		r.handleListSessions()
 	case "/resume", "/continue":
@@ -230,6 +240,7 @@ func (r *REPL) showHelp() {
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/resume [id|#]"+ui.Reset, "Resume an existing conversation by ID or index number")
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/new"+ui.Reset, "Start a brand-new conversation (resets active session)")
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/harness [name]"+ui.Reset, "View or switch active harness (antigravity, codex, auto)")
+	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/model [name]"+ui.Reset, "View or switch active model for current harness")
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/projects"+ui.Reset, "List local code projects and workspaces")
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/project [path|#]"+ui.Reset, "Switch active workspace to another project")
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/status"+ui.Reset, "Inspect current project state and latest checkpoint")
@@ -243,7 +254,17 @@ func (r *REPL) showHelp() {
 
 func (r *REPL) handleHarness(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintf(r.out, "Active harness: %s\nAvailable harnesses: codex, antigravity, auto\n\n", ui.Bold+ui.Cyan+r.harness+ui.Reset)
+		newHarness := session.PromptHarness(r.in, r.out, r.harness)
+		if newHarness != "" {
+			r.harness = newHarness
+			session.SetLastHarness(r.root, newHarness)
+			newModel := session.PromptModel(r.in, r.out, newHarness, r.model)
+			if newModel != "" {
+				r.model = newModel
+				session.SetLastModel(r.root, newModel)
+			}
+			fmt.Fprintf(r.out, "%s Switched active harness to %s (%s).\n\n", ui.Green+"✔"+ui.Reset, ui.Bold+ui.Cyan+r.harness+ui.Reset, session.ModelDisplayName(r.model, r.harness))
+		}
 		return
 	}
 	target := strings.ToLower(strings.TrimSpace(args[0]))
@@ -256,14 +277,31 @@ func (r *REPL) handleHarness(args []string) {
 	}
 	r.harness = target
 	session.SetLastHarness(r.root, target)
-	fmt.Fprintf(r.out, "%s Switched active harness to %s.\n\n", ui.Green+"✔"+ui.Reset, ui.Bold+ui.Cyan+r.harness+ui.Reset)
+	r.model = session.GetLastModel(r.root, target)
+	fmt.Fprintf(r.out, "%s Switched active harness to %s (%s).\n\n", ui.Green+"✔"+ui.Reset, ui.Bold+ui.Cyan+r.harness+ui.Reset, session.ModelDisplayName(r.model, r.harness))
+}
+
+func (r *REPL) handleModel(args []string) {
+	if len(args) > 0 {
+		target := strings.TrimSpace(args[0])
+		r.model = target
+		session.SetLastModel(r.root, target)
+		fmt.Fprintf(r.out, "%s Switched active model to %s.\n\n", ui.Green+"✔"+ui.Reset, ui.Bold+session.ModelDisplayName(target, r.harness)+ui.Reset)
+		return
+	}
+	newModel := session.PromptModel(r.in, r.out, r.harness, r.model)
+	if newModel != "" {
+		r.model = newModel
+		session.SetLastModel(r.root, newModel)
+		fmt.Fprintf(r.out, "%s Switched active model to %s.\n\n", ui.Green+"✔"+ui.Reset, ui.Bold+session.ModelDisplayName(newModel, r.harness)+ui.Reset)
+	}
 }
 
 func (r *REPL) handleListSessions() {
 	sessions := session.DiscoverSessions(r.root)
 	r.cachedSessions = sessions
 	if len(sessions) == 0 {
-		fmt.Fprintf(r.out, "No prior sessions found for local harnesses.\n\n")
+		fmt.Fprintf(r.out, "No prior sessions found for this project (%s).\nStart chatting to begin a new session, or run %s.\n\n", r.root, ui.Bold+"/help"+ui.Reset)
 		return
 	}
 
@@ -349,11 +387,12 @@ func (r *REPL) handleListProjects() {
 		r.root = p.Path
 		r.sessionID = session.GetLastSession(r.root)
 		r.harness = session.GetLastHarness(r.root)
+		r.model = session.GetLastModel(r.root, r.harness)
 		r.cachedProjects = session.DiscoverProjects(r.root)
 		r.cachedSessions = session.DiscoverSessions(r.root)
 		fmt.Fprintf(r.out, "%s Switched active workspace to: %s\n", ui.Green+"✔"+ui.Reset, p.Path)
 		if r.sessionID != "" {
-			fmt.Fprintf(r.out, "%s Restored project session: %s (%s)\n", ui.Green+"✔"+ui.Reset, r.sessionID, r.harness)
+			fmt.Fprintf(r.out, "%s Restored project session: %s (%s · %s)\n", ui.Green+"✔"+ui.Reset, r.sessionID, r.harness, session.ModelDisplayName(r.model, r.harness))
 			session.RenderConversationHistory(r.out, r.harness, r.sessionID, 5)
 		} else {
 			fmt.Fprintln(r.out)
@@ -394,11 +433,12 @@ func (r *REPL) handleSwitchProject(args []string) {
 	r.root = absPath
 	r.sessionID = session.GetLastSession(r.root)
 	r.harness = session.GetLastHarness(r.root)
+	r.model = session.GetLastModel(r.root, r.harness)
 	r.cachedProjects = session.DiscoverProjects(r.root)
 	r.cachedSessions = session.DiscoverSessions(r.root)
 	fmt.Fprintf(r.out, "%s Switched active workspace to: %s\n", ui.Green+"✔"+ui.Reset, ui.Bold+r.root+ui.Reset)
 	if r.sessionID != "" {
-		fmt.Fprintf(r.out, "%s Restored project session: %s (%s)\n", ui.Green+"✔"+ui.Reset, r.sessionID, r.harness)
+		fmt.Fprintf(r.out, "%s Restored project session: %s (%s · %s)\n", ui.Green+"✔"+ui.Reset, r.sessionID, r.harness, session.ModelDisplayName(r.model, r.harness))
 		session.RenderConversationHistory(r.out, r.harness, r.sessionID, 5)
 	} else {
 		fmt.Fprintln(r.out)
@@ -535,12 +575,18 @@ func (r *REPL) executePrompt(prompt string) {
 		if r.harness != "" && r.harness != "auto" {
 			adapter, _, err := harness.SelectHarness(context.Background(), r.root, r.harness)
 			if err == nil && adapter != nil {
+				if cliAdapter, ok := adapter.(*harness.CLIAdapter); ok && r.model != "" {
+					cliAdapter.Config.Model = r.model
+				}
 				return adapter
 			}
 		}
 		cfg, err := harness.LoadConfig(r.root)
 		if err != nil {
 			return nil
+		}
+		if r.model != "" {
+			cfg.Model = r.model
 		}
 		return harness.NewAdapter(context.Background(), r.root, cfg)
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/anonyxhappie/keystone/internal/artifact"
 	"github.com/anonyxhappie/keystone/internal/checkpoint"
 	"github.com/anonyxhappie/keystone/internal/context"
+	"github.com/anonyxhappie/keystone/internal/diagnosis"
 	"github.com/anonyxhappie/keystone/internal/domain"
 	"github.com/anonyxhappie/keystone/internal/evidence"
 	"github.com/anonyxhappie/keystone/internal/git"
@@ -21,6 +22,7 @@ import (
 	"github.com/anonyxhappie/keystone/internal/learning"
 	"github.com/anonyxhappie/keystone/internal/observation"
 	"github.com/anonyxhappie/keystone/internal/policy"
+	"github.com/anonyxhappie/keystone/internal/prompt"
 	"github.com/anonyxhappie/keystone/internal/runtime"
 	"github.com/anonyxhappie/keystone/internal/state"
 	"github.com/anonyxhappie/keystone/internal/supervisor"
@@ -37,7 +39,7 @@ type Limits struct {
 }
 
 func DefaultLimits() Limits {
-	return Limits{MaxAttempts: 2, MaxObservations: 256, MaxWallTime: 10 * time.Minute, MaxContextTokens: 20000, MaxToolCalls: 200}
+	return Limits{MaxAttempts: 6, MaxObservations: 256, MaxWallTime: 15 * time.Minute, MaxContextTokens: 20000, MaxToolCalls: 200}
 }
 
 type Engine struct {
@@ -57,23 +59,27 @@ type resumeInput struct {
 	Snapshot state.Snapshot
 }
 type Report struct {
-	RunID            string                   `json:"runId"`
-	WorkOrderID      string                   `json:"workOrderId"`
-	HarnessID        string                   `json:"harnessId,omitempty"`
-	HarnessSessionID string                   `json:"harnessSessionId,omitempty"`
-	HarnessSelection *domain.HarnessSelection `json:"harnessSelection,omitempty"`
-	ReadOnly         bool                     `json:"readOnly,omitempty"`
-	Mutations        []domain.FileMutation    `json:"mutations,omitempty"`
-	State            runtime.State            `json:"state"`
-	NextAction       domain.NextAction        `json:"nextAction"`
-	Findings         []domain.Finding         `json:"findings,omitempty"`
-	EvidenceIDs      []string                 `json:"evidenceIds,omitempty"`
-	ChangedFiles     []string                 `json:"changedFiles,omitempty"`
-	ContextManifest  string                   `json:"contextManifest,omitempty"`
-	ContextTokens    int                      `json:"contextTokens,omitempty"`
-	Validations      []validation.Result      `json:"validations,omitempty"`
-	Attempts         int                      `json:"attempts"`
-	Error            string                   `json:"error,omitempty"`
+	RunID            string                    `json:"runId"`
+	WorkOrderID      string                    `json:"workOrderId"`
+	HarnessID        string                    `json:"harnessId,omitempty"`
+	HarnessSessionID string                    `json:"harnessSessionId,omitempty"`
+	HarnessSelection *domain.HarnessSelection  `json:"harnessSelection,omitempty"`
+	LastPromptID     string                    `json:"lastPromptId,omitempty"`
+	Prompts          []domain.Prompt           `json:"prompts,omitempty"`
+	ReadOnly         bool                      `json:"readOnly,omitempty"`
+	Mutations        []domain.FileMutation     `json:"mutations,omitempty"`
+	State            runtime.State             `json:"state"`
+	NextAction       domain.NextAction         `json:"nextAction"`
+	Findings         []domain.Finding          `json:"findings,omitempty"`
+	EvidenceIDs      []string                  `json:"evidenceIds,omitempty"`
+	ChangedFiles     []string                  `json:"changedFiles,omitempty"`
+	ContextManifest  string                    `json:"contextManifest,omitempty"`
+	ContextTokens    int                       `json:"contextTokens,omitempty"`
+	Validations      []validation.Result       `json:"validations,omitempty"`
+	Attempts         int                       `json:"attempts"`
+	Error            string                    `json:"error,omitempty"`
+	Diagnoses        []domain.FailureDiagnosis `json:"diagnoses,omitempty"`
+	Retries          []domain.RetryStrategy    `json:"retries,omitempty"`
 }
 
 var ErrPaused = errors.New("run paused by explicit control request")
@@ -258,6 +264,18 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 	changed := append([]string(nil), report.ChangedFiles...)
 	var allValidations []validation.Result
 	previousActions := []string{}
+	currentSessionID := ""
+	if resuming && resumeCheckpoint.HarnessSessionID != "" {
+		currentSessionID = resumeCheckpoint.HarnessSessionID
+	} else if e.ResumeSessionID != "" {
+		currentSessionID = e.ResumeSessionID
+	}
+	var lastDiagnosis *domain.FailureDiagnosis
+	var lastRetry *domain.RetryStrategy
+	var lastDiffDigest string
+	var promptHistory []domain.Prompt
+	var diagnosisHistory []domain.FailureDiagnosis
+
 	for attempt := 1; attempt <= e.Limits.MaxAttempts; attempt++ {
 		report.Attempts = attempt
 		if attempt > 1 {
@@ -297,6 +315,15 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			"decisions":   packet.ContextDecisions,
 			"updatedAt":   time.Now().UTC(),
 		})
+		if err := e.event(runID, "ContextCompiled", map[string]any{
+			"workOrderId": order.ID,
+			"attempt":     attempt,
+			"manifest":    report.ContextManifest,
+			"tokens":      packet.ContextTokens,
+			"itemCount":   len(packet.Context),
+		}); err != nil {
+			return e.block(ctx, m, report, err)
+		}
 		if e.Limits.MaxContextTokens > 0 && packetTokens(packet) > e.Limits.MaxContextTokens {
 			return e.block(ctx, m, report, fmt.Errorf("context budget exceeded: %d > %d tokens", packetTokens(packet), e.Limits.MaxContextTokens))
 		}
@@ -369,18 +396,48 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			harnessID = identified.HarnessID()
 		}
 		report.HarnessID = harnessID
-		targetSessionID := ""
-		if resuming && attempt == 1 && resumeCompatible && resumeCheckpoint.HarnessSessionID != "" {
-			targetSessionID = resumeCheckpoint.HarnessSessionID
-		} else if attempt == 1 && e.ResumeSessionID != "" {
-			targetSessionID = e.ResumeSessionID
+
+		if currentSessionID == "" {
+			if resuming && attempt == 1 && resumeCompatible && resumeCheckpoint.HarnessSessionID != "" {
+				currentSessionID = resumeCheckpoint.HarnessSessionID
+			} else if attempt == 1 && e.ResumeSessionID != "" {
+				currentSessionID = e.ResumeSessionID
+			}
 		}
-		if targetSessionID != "" {
+
+		// Generate durable, structured Prompt for this turn
+		prm := prompt.Generate(order, packet, attempt, harnessID, currentSessionID, report.ContextManifest, lastDiagnosis, lastRetry)
+		report.LastPromptID = prm.ID
+		report.Prompts = append(report.Prompts, prm)
+		promptHistory = append(promptHistory, prm)
+		if err := e.Store.Write("prompts/"+prm.ID+".json", prm); err != nil {
+			return e.block(ctx, m, report, err)
+		}
+		if err := e.event(runID, "PromptGenerated", map[string]any{
+			"promptId":         prm.ID,
+			"workOrderId":      order.ID,
+			"runId":            runID,
+			"turn":             attempt,
+			"harnessId":        harnessID,
+			"sessionId":        currentSessionID,
+			"reason":           prm.Reason,
+			"strategy":         prm.Strategy,
+			"hypothesis":       prm.Hypothesis,
+			"expectedInfoGain": prm.ExpectedInfoGain,
+			"contentLength":    len(prm.Content),
+		}); err != nil {
+			return e.block(ctx, m, report, err)
+		}
+
+		// Dispatch prompt to harness adapter
+		if dispatcher, ok := current.(harness.PromptDispatcher); ok {
+			harnessSession, err = dispatcher.DispatchPrompt(prm)
+		} else if currentSessionID != "" {
 			if resumer, ok := current.(harness.PacketResumer); ok {
-				cp := domain.Checkpoint{WorkOrderID: order.ID, HarnessID: report.HarnessID, HarnessSessionID: targetSessionID}
+				cp := domain.Checkpoint{WorkOrderID: order.ID, HarnessID: report.HarnessID, HarnessSessionID: currentSessionID}
 				harnessSession, err = resumer.ResumePacket(cp, packet)
 				if err != nil {
-					if eventErr := e.event(runID, "RESUME_FAILED", map[string]any{"harnessId": report.HarnessID, "sessionId": targetSessionID, "error": err.Error(), "fallback": "start-new-provider-session"}); eventErr != nil {
+					if eventErr := e.event(runID, "RESUME_FAILED", map[string]any{"harnessId": report.HarnessID, "sessionId": currentSessionID, "error": err.Error(), "fallback": "start-new-provider-session"}); eventErr != nil {
 						return e.block(ctx, m, report, eventErr)
 					}
 					harnessSession, err = current.Start(packet)
@@ -392,12 +449,37 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			harnessSession, err = current.Start(packet)
 		}
 		if err != nil {
-			return e.block(ctx, m, report, fmt.Errorf("harness start: %w", err))
+			return e.block(ctx, m, report, fmt.Errorf("harness dispatch: %w", err))
 		}
 		if session, ok := current.(harness.SessionIdentity); ok && session.SessionID() != "" {
 			harnessSession = session.SessionID()
 		}
-		report.HarnessSessionID = harnessSession
+		if harnessSession != "" {
+			currentSessionID = harnessSession
+			report.HarnessSessionID = harnessSession
+			prm.HarnessSessionID = harnessSession
+			prm.Dispatched = true
+			prm.DispatchedAt = time.Now().UTC()
+			_ = e.Store.Write("prompts/"+prm.ID+".json", prm)
+		}
+		report.HarnessSessionID = currentSessionID
+
+		if err := e.event(runID, "PromptDispatched", map[string]any{
+			"promptId":  prm.ID,
+			"sessionId": harnessSession,
+			"harnessId": harnessID,
+			"turn":      attempt,
+			"at":        prm.DispatchedAt,
+		}); err != nil {
+			return e.block(ctx, m, report, err)
+		}
+
+		var promptEvidenceID string
+		promptEvidence, _ := evidence.RecordScoped(e.Store, order.ID, "prompt-dispatch", fmt.Sprintf("Prompt %s dispatched to %s (session %s)", prm.ID, harnessID, harnessSession), baselineSnapshot.Head, baselineSnapshot.DiffDigest, nil, true)
+		if promptEvidence.ID != "" {
+			promptEvidenceID = promptEvidence.ID
+		}
+
 		version := "configured"
 		if versioned, ok := current.(harness.Versioned); ok && versioned.Version() != "" {
 			version = versioned.Version()
@@ -419,6 +501,9 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			return e.block(ctx, m, report, err)
 		}
 		if err := e.event(runID, "RUN_STARTED", map[string]any{"workOrderId": order.ID, "sessionId": harnessSession, "harnessCapabilities": current.Capabilities()}); err != nil {
+			return e.block(ctx, m, report, err)
+		}
+		if err := e.event(runID, "HarnessTurnStarted", map[string]any{"workOrderId": order.ID, "sessionId": harnessSession, "harnessId": harnessID, "turn": attempt}); err != nil {
 			return e.block(ctx, m, report, err)
 		}
 		if err := e.event(runID, "PROMPT_SENT", map[string]any{"sessionId": harnessSession, "workOrderId": order.ID, "contextItems": len(packet.Context), "validationChecks": len(packet.Validation)}); err != nil {
@@ -489,6 +574,9 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 				return e.block(ctx, m, report, err)
 			}
 		}
+		if err := e.event(runID, "HarnessObserved", map[string]any{"turn": attempt, "sessionId": harnessSession, "observationCount": len(observations)}); err != nil {
+			return e.block(ctx, m, report, err)
+		}
 		if observeErr != nil && observeErr != io.EOF {
 			if err := e.event(runID, "OBSERVATION_GAP", map[string]any{"error": observeErr.Error()}); err != nil {
 				return e.block(ctx, m, report, err)
@@ -506,6 +594,9 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			return e.block(ctx, m, report, err)
 		}
 		if err := e.Store.Write("harness-runs/"+harnessRunID+".json", domain.HarnessRun{ID: harnessRunID, WorkOrderID: order.ID, HarnessID: harnessID, Status: status, StartedAt: startedAt, FinishedAt: &finishedAt}); err != nil {
+			return e.block(ctx, m, report, err)
+		}
+		if err := e.event(runID, "HarnessTurnCompleted", map[string]any{"sessionId": harnessSession, "turn": attempt, "status": status, "duration": time.Since(startedAt).String()}); err != nil {
 			return e.block(ctx, m, report, err)
 		}
 		if err := e.event(runID, "RUN_STOPPED", map[string]any{"sessionId": harnessSession, "harnessRunId": harnessRunID, "status": status}); err != nil {
@@ -605,6 +696,9 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			return e.block(ctx, m, report, err)
 		}
 		allEvidence = append(allEvidence, harnessEvidence.ID)
+		if promptEvidenceID != "" {
+			allEvidence = append(allEvidence, promptEvidenceID)
+		}
 		if err := e.event(runID, "EVIDENCE_RECORDED", map[string]any{"evidenceId": harnessEvidence.ID, "type": harnessEvidence.Type, "status": harnessEvidence.Verification}); err != nil {
 			return e.block(ctx, m, report, err)
 		}
@@ -693,16 +787,36 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 		previousActions = append(previousActions, actions...)
 		lastFindings = findings
 		report.Findings = findings
+		if err := e.event(runID, "SupervisorEvaluation", map[string]any{"turn": attempt, "findingsCount": len(findings), "validationPassed": validationPassed, "claims": claims}); err != nil {
+			return e.block(ctx, m, report, err)
+		}
 		if err := e.event(runID, "FINDINGS_RECORDED", map[string]any{"findings": findings}); err != nil {
 			return e.block(ctx, m, report, err)
 		}
 		if len(findings) > 0 {
-			l := domain.Learning{ID: fmt.Sprintf("L-%s-%d", runID, attempt), Scope: "project", Observation: "supervisor finding: " + findings[0].Type, BeforeEvidenceIDs: append([]string(nil), allEvidence...), EvidenceIDs: append([]string(nil), allEvidence...), Confidence: findings[0].Confidence, ProposedChange: findings[0].RecommendedAction, Rollback: "supersede this learning record and restore the prior strategy", Status: "OBSERVED", Version: 1}
+			l := domain.Learning{ID: fmt.Sprintf("L-%s-%d", runID, attempt), Scope: "project", Observation: "supervisor finding: " + findings[0].Type, BeforeEvidenceIDs: append([]string(nil), allEvidence...), EvidenceIDs: append([]string(nil), allEvidence...), Confidence: findings[0].Confidence, ProposedChange: findings[0].RecommendedAction, Rollback: "supersede this learning record and restore the prior strategy", Status: "OBSERVED", Version: 1, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 			saved, err := learning.Transition(e.Store, l, "CANDIDATE", "")
 			if err != nil {
 				return e.block(ctx, m, report, err)
 			}
 			if err := e.event(runID, "LEARNING_CANDIDATE", map[string]any{"learningId": saved.ID, "finding": findings[0].Type}); err != nil {
+				return e.block(ctx, m, report, err)
+			}
+		}
+		diag := diagnosis.Classify(observations, validations, status, []domain.PolicyDecision{}, mutations, order.ReadOnly)
+		lastDiagnosis = &diag
+		report.Diagnoses = append(report.Diagnoses, diag)
+		diagnosisHistory = append(diagnosisHistory, diag)
+		if !validationPassed || len(highFindings(findings)) > 0 {
+			if err := e.event(runID, "FAILURE_DIAGNOSIS", map[string]any{
+				"turn":                 attempt,
+				"class":                diag.Class,
+				"summary":              diag.Summary,
+				"target":               diag.Target,
+				"recoverableByHarness": diag.RecoverableByHarness,
+				"requiresHuman":        diag.RequiresHuman,
+				"instruction":          diag.RecoveryInstruction,
+			}); err != nil {
 				return e.block(ctx, m, report, err)
 			}
 		}
@@ -729,24 +843,6 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			}
 			return report, nil
 		}
-		if policyBlocked {
-			if err := e.decide(m, runtime.BlockDecision, "validation command requires explicit policy approval", &report); err != nil {
-				return e.block(ctx, m, report, err)
-			}
-			report.State = m.State
-			report.NextAction = m.NextAction(order.Risk.Level, false, "validation command requires explicit approval")
-			report.EvidenceIDs = allEvidence
-			report.Validations = allValidations
-			order.Status = domain.StatusBlocked
-			order.UpdatedAt = time.Now().UTC()
-			if err := e.Store.Write("work/"+order.ID+".json", order); err != nil {
-				return report, err
-			}
-			if err := e.checkpoint(m, report, changed, findings); err != nil {
-				return report, err
-			}
-			return report, nil
-		}
 		readOnlyCompliant := !order.ReadOnly || len(report.Mutations) == 0
 		if validationPassed && len(highFindings(findings)) == 0 && readOnlyCompliant {
 			completionPolicy := policy.Evaluate("complete")
@@ -763,6 +859,7 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			report.NextAction = m.NextAction(order.Risk.Level, true, "verified completion")
 			report.EvidenceIDs = allEvidence
 			report.Validations = allValidations
+			_ = e.event(runID, "NextAction", map[string]any{"type": "COMPLETE", "reason": "verified completion", "target": order.ID})
 			if reqID != "" {
 				req.Status = domain.StatusVerified
 				req.WorkOrderID = order.ID
@@ -783,33 +880,137 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			}
 			return report, nil
 		}
-		if attempt < e.Limits.MaxAttempts {
-			if err := e.decide(m, runtime.CorrectDecision, "validation failed or completion was unsupported", &report); err != nil {
+		if policyBlocked || diag.RequiresHuman {
+			decisionReason := "validation command requires explicit policy approval"
+			if diag.RequiresHuman {
+				decisionReason = diag.Summary
+			}
+			if err := e.decide(m, runtime.BlockDecision, decisionReason, &report); err != nil {
 				return e.block(ctx, m, report, err)
 			}
-			previousHarness := "unknown"
-			if identified, ok := current.(harness.HarnessIdentity); ok {
-				previousHarness = identified.HarnessID()
+			report.State = m.State
+			report.NextAction = m.NextAction(order.Risk.Level, false, decisionReason)
+			report.EvidenceIDs = allEvidence
+			report.Validations = allValidations
+			_ = e.event(runID, "NextAction", map[string]any{"type": "ASK", "reason": decisionReason, "target": diag.Target})
+			order.Status = domain.StatusBlocked
+			order.UpdatedAt = time.Now().UTC()
+			if err := e.Store.Write("work/"+order.ID+".json", order); err != nil {
+				return report, err
 			}
-			if stopper, ok := current.(harness.Stopper); ok {
-				_ = stopper.Stop()
+			if err := e.checkpoint(m, report, changed, findings); err != nil {
+				return report, err
 			}
-			if e.RequestedHarness != "" && e.RequestedHarness != "auto" {
-				selectedAdapter, _, _ := harness.SelectHarness(ctx, e.Root, e.RequestedHarness)
-				current = selectedAdapter
-			} else if e.AdapterFactory != nil {
-				current = e.AdapterFactory()
-			} else {
-				current = nil
-			}
-			if current != nil {
-				nextHarness := "unknown"
-				if identified, ok := current.(harness.HarnessIdentity); ok {
-					nextHarness = identified.HarnessID()
+			return report, nil
+		}
+		if attempt < e.Limits.MaxAttempts {
+			isLoop := false
+			if len(diagnosisHistory) >= 2 {
+				prevDiag := diagnosisHistory[len(diagnosisHistory)-2]
+				if prevDiag.Summary == diag.Summary && gitState.DiffDigest == lastDiffDigest {
+					isLoop = true
 				}
-				if err := e.event(runID, "HARNESS_SWITCHED", map[string]any{"from": previousHarness, "to": nextHarness, "attempt": attempt + 1, "reason": "bounded correction after failed verification"}); err != nil {
+			}
+			lastDiffDigest = gitState.DiffDigest
+
+			if isLoop {
+				if order.HarnessSelection != nil && order.HarnessSelection.SelectionMode == "auto" {
+					var altHarness string
+					for _, h := range order.HarnessSelection.AvailableHarnesses {
+						if h != harnessID && h != "manual" {
+							altHarness = h
+							break
+						}
+					}
+					if altHarness != "" {
+						switchReason := fmt.Sprintf("auto-switching harness from %s to %s after repeated lack of progress on %s", harnessID, altHarness, diag.Summary)
+						if err := e.decide(m, runtime.ReplanDecision, switchReason, &report); err != nil {
+							return e.block(ctx, m, report, err)
+						}
+						if err := e.event(runID, "HARNESS_SWITCHED", map[string]any{"from": harnessID, "to": altHarness, "attempt": attempt + 1, "reason": switchReason}); err != nil {
+							return e.block(ctx, m, report, err)
+						}
+						if stopper, ok := current.(harness.Stopper); ok {
+							_ = stopper.Stop()
+						}
+						selectedAdapter, _, _ := harness.SelectHarness(ctx, e.Root, altHarness)
+						current = selectedAdapter
+						harnessID = altHarness
+						currentSessionID = ""
+						_ = e.checkpoint(m, report, changed, findings)
+						continue
+					}
+				}
+				findings = append(findings, domain.Finding{
+					Type:              supervisor.Loop,
+					Severity:          "high",
+					Explanation:       fmt.Sprintf("no-progress loop: identical failure %q repeated without changes", diag.Summary),
+					RecommendedAction: "ASK",
+					Confidence:        0.99,
+				})
+				report.Findings = findings
+				if err := e.decide(m, runtime.BlockDecision, fmt.Sprintf("repeated failure on %s with no progress; human intervention required", diag.Summary), &report); err != nil {
 					return e.block(ctx, m, report, err)
 				}
+				report.State = m.State
+				report.NextAction = m.NextAction(order.Risk.Level, false, fmt.Sprintf("no-progress loop: %s", diag.Summary))
+				_ = e.event(runID, "NextAction", map[string]any{"type": "ASK", "reason": diag.Summary, "target": diag.Target})
+				order.Status = domain.StatusBlocked
+				order.UpdatedAt = time.Now().UTC()
+				_ = e.Store.Write("work/"+order.ID+".json", order)
+				_ = e.checkpoint(m, report, changed, findings)
+				return report, nil
+			}
+
+			// Formulate RetryStrategy
+			retryStrat := domain.RetryStrategy{
+				Attempt:          attempt + 1,
+				Reason:           diag.RecoveryInstruction,
+				PreviousFailure:  diag.Summary,
+				FailureType:      string(diag.Class),
+				Strategy:         string(diag.Class),
+				Hypothesis:       fmt.Sprintf("Harness will recover %s using project configuration and verified steps", diag.Target),
+				ExpectedInfoGain: "Resolution of " + diag.Summary,
+				CreatedAt:        time.Now().UTC(),
+			}
+			lastRetry = &retryStrat
+			report.Retries = append(report.Retries, retryStrat)
+
+			if err := e.decide(m, runtime.CorrectDecision, diag.RecoveryInstruction, &report); err != nil {
+				return e.block(ctx, m, report, err)
+			}
+			previousHarness := harnessID
+			if e.AdapterFactory != nil {
+				nextAdapter := e.AdapterFactory()
+				if nextAdapter != nil {
+					current = nextAdapter
+					if identified, ok := current.(harness.HarnessIdentity); ok {
+						harnessID = identified.HarnessID()
+					}
+				}
+			}
+			if harnessID != previousHarness {
+				switchReason := fmt.Sprintf("switching harness from %s to %s for attempt %d", previousHarness, harnessID, attempt+1)
+				if err := e.event(runID, "HARNESS_SWITCHED", map[string]any{"from": previousHarness, "to": harnessID, "attempt": attempt + 1, "reason": switchReason}); err != nil {
+					return e.block(ctx, m, report, err)
+				}
+				currentSessionID = ""
+			} else {
+				if err := e.event(runID, "HARNESS_SESSION_RESUMED", map[string]any{
+					"harnessId": harnessID,
+					"sessionId": currentSessionID,
+					"attempt":   attempt + 1,
+					"reason":    diag.RecoveryInstruction,
+				}); err != nil {
+					return e.block(ctx, m, report, err)
+				}
+			}
+			if err := e.event(runID, "NextAction", map[string]any{
+				"type":   "CONTINUE",
+				"reason": diag.RecoveryInstruction,
+				"target": currentSessionID,
+			}); err != nil {
+				return e.block(ctx, m, report, err)
 			}
 			if err := e.checkpoint(m, report, changed, findings); err != nil {
 				return report, err
@@ -824,6 +1025,7 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 		report.EvidenceIDs = allEvidence
 		report.Validations = allValidations
 		report.Error = "completion was not verified"
+		_ = e.event(runID, "NextAction", map[string]any{"type": "STOP", "reason": "bounded attempts exhausted without verified completion", "target": order.ID})
 		order.Status = domain.StatusFailed
 		order.UpdatedAt = time.Now().UTC()
 		if err := e.Store.Write("work/"+order.ID+".json", order); err != nil {
@@ -881,6 +1083,7 @@ func (e *Engine) persist(m *runtime.Machine, report Report, checkpointID *string
 		HarnessID:        report.HarnessID,
 		HarnessSessionID: report.HarnessSessionID,
 		HarnessSelection: report.HarnessSelection,
+		LastPromptID:     report.LastPromptID,
 		ReadOnly:         report.ReadOnly,
 		Mutations:        report.Mutations,
 		Machine:          m,
@@ -899,7 +1102,29 @@ func (e *Engine) persist(m *runtime.Machine, report Report, checkpointID *string
 }
 func (e *Engine) checkpoint(m *runtime.Machine, report Report, changed []string, findings []domain.Finding) error {
 	id := fmt.Sprintf("CP-%s-%d", report.RunID, report.Attempts)
-	c := domain.Checkpoint{SchemaVersion: "2", ID: id, WorkOrderID: report.WorkOrderID, RunID: report.RunID, State: string(m.State), ChangedFiles: changed, ContextManifest: report.ContextManifest, HarnessID: report.HarnessID, HarnessSessionID: report.HarnessSessionID, NextAction: &report.NextAction, CreatedAt: time.Now().UTC()}
+	c := domain.Checkpoint{
+		SchemaVersion:    "2",
+		ID:               id,
+		WorkOrderID:      report.WorkOrderID,
+		RunID:            report.RunID,
+		State:            string(m.State),
+		Phase:            string(m.State),
+		ChangedFiles:     changed,
+		ContextManifest:  report.ContextManifest,
+		HarnessID:        report.HarnessID,
+		HarnessSessionID: report.HarnessSessionID,
+		LastPromptID:     report.LastPromptID,
+		EvidenceIDs:      report.EvidenceIDs,
+		NextAction:       &report.NextAction,
+		CreatedAt:        time.Now().UTC(),
+	}
+	for _, v := range report.Validations {
+		c.Validations = append(c.Validations, domain.ValidationSummary{
+			Name:   v.Name,
+			Tier:   v.Tier,
+			Passed: v.Passed,
+		})
+	}
 	for _, t := range m.History {
 		c.Completed = append(c.Completed, string(t.To))
 	}

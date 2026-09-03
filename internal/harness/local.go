@@ -242,6 +242,11 @@ func normalizeProvider(provider string) string {
 
 func defaultProviderCommand(provider string) string {
 	if normalizeProvider(provider) == "antigravity" {
+		for _, cmd := range []string{"agy", "antigravity"} {
+			if _, _, ok := probeCommand(cmd); ok {
+				return cmd
+			}
+		}
 		return "agy"
 	}
 	return "codex"
@@ -353,10 +358,31 @@ func (a *ProcessAdapter) Capabilities() []string {
 	return append([]string{"start", "send", "observe", "interrupt", "resume", "result", "stdout-observation"}, capabilities...)
 }
 func (a *ProcessAdapter) Start(packet domain.WorkPacket) (string, error) {
+	return a.startWithContent(Render(packet))
+}
+
+func (a *ProcessAdapter) DispatchPrompt(prompt domain.Prompt) (string, error) {
+	a.mu.Lock()
+	active := a.started && !a.finished
+	a.mu.Unlock()
+	if !active {
+		return a.startWithContent(prompt.Content)
+	}
+	err := a.Send(prompt.Content)
+	return a.runID, err
+}
+
+func (a *ProcessAdapter) startWithContent(content string) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.started {
+	if a.started && !a.finished {
 		return "", fmt.Errorf("harness already started")
+	}
+	if a.finished {
+		a.ctx, a.cancel = context.WithCancel(context.Background())
+		a.started = false
+		a.finished = false
+		a.result = domain.StatusUnknown
 	}
 	a.cmd = exec.CommandContext(a.ctx, a.Config.Command, a.Config.Args...)
 	stdin, err := a.cmd.StdinPipe()
@@ -375,7 +401,7 @@ func (a *ProcessAdapter) Start(packet domain.WorkPacket) (string, error) {
 	}
 	a.started = true
 	a.runID = fmt.Sprintf("RUN-%d", time.Now().UnixNano())
-	if err := a.sendLocked(Render(packet)); err != nil {
+	if err := a.sendLocked(content); err != nil {
 		_ = a.cmd.Process.Kill()
 		return "", err
 	}

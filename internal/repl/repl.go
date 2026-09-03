@@ -87,11 +87,45 @@ func (r *REPL) Run() error {
 			continue
 		}
 
+		// Natural language command aliases
+		if mapped := mapNaturalCommand(line); mapped != "" {
+			r.handleSlashCommand(mapped)
+			continue
+		}
+
 		// Text prompt
 		r.executePrompt(line)
 	}
 
 	return nil
+}
+
+func mapNaturalCommand(input string) string {
+	normalized := strings.TrimSpace(strings.ToLower(input))
+	normalized = strings.TrimRight(normalized, ".?!")
+	normalized = strings.TrimSpace(normalized)
+
+	switch normalized {
+	case "help", "what can you do", "commands", "show commands", "list commands":
+		return "/help"
+	case "sessions", "list sessions", "show sessions", "conversations", "list conversations", "show conversations", "history", "show history":
+		return "/sessions"
+	case "projects", "list projects", "show projects", "workspaces", "list workspaces":
+		return "/projects"
+	case "doctor", "check health", "health", "system check", "check environment":
+		return "/doctor"
+	case "verify", "run tests", "check tests", "validate", "run validation":
+		return "/verify"
+	case "status", "show status", "current status", "project status":
+		return "/status"
+	case "review", "show review", "findings", "show findings":
+		return "/review"
+	case "clear", "cls":
+		return "/clear"
+	case "new", "new session", "start new conversation", "fresh conversation":
+		return "/new"
+	}
+	return ""
 }
 
 func (r *REPL) printWelcome() {

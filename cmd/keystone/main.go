@@ -478,6 +478,7 @@ func localFactory(root string, requested ...string) func() harness.Adapter {
 			if err == nil && adapter != nil {
 				return adapter
 			}
+			return nil
 		}
 		cfg, err := harness.LoadConfig(root)
 		if err != nil {

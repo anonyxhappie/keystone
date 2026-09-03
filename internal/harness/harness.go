@@ -39,6 +39,12 @@ type PacketResumer interface {
 	ResumePacket(domain.Checkpoint, domain.WorkPacket) (string, error)
 }
 
+// PromptDispatcher dispatches a durable, structured prompt to the harness,
+// returning the provider session ID and any startup error.
+type PromptDispatcher interface {
+	DispatchPrompt(prompt domain.Prompt) (string, error)
+}
+
 type Stopper interface {
 	Stop() error
 }

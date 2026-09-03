@@ -69,6 +69,63 @@ type Decision struct {
 	Source    string    `json:"source,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
+type Prompt struct {
+	SchemaVersion    string    `json:"schemaVersion,omitempty" yaml:"schemaVersion,omitempty"`
+	ID               string    `json:"id" yaml:"id"`
+	WorkOrderID      string    `json:"workOrderId" yaml:"workOrderId"`
+	RunID            string    `json:"runId" yaml:"runId"`
+	Turn             int       `json:"turn" yaml:"turn"`
+	HarnessID        string    `json:"harnessId" yaml:"harnessId"`
+	HarnessSessionID string    `json:"harnessSessionId,omitempty" yaml:"harnessSessionId,omitempty"`
+	ContextManifest  string    `json:"contextManifest,omitempty" yaml:"contextManifest,omitempty"`
+	Reason           string    `json:"reason" yaml:"reason"`
+	Strategy         string    `json:"strategy,omitempty" yaml:"strategy,omitempty"`
+	Hypothesis       string    `json:"hypothesis,omitempty" yaml:"hypothesis,omitempty"`
+	ExpectedInfoGain string    `json:"expectedInfoGain,omitempty" yaml:"expectedInfoGain,omitempty"`
+	Content          string    `json:"content" yaml:"content"`
+	Dispatched       bool      `json:"dispatched" yaml:"dispatched"`
+	CreatedAt        time.Time `json:"createdAt" yaml:"createdAt"`
+	DispatchedAt     time.Time `json:"dispatchedAt,omitempty" yaml:"dispatchedAt,omitempty"`
+}
+
+type FailureClass string
+
+const (
+	FailureAgentError         FailureClass = "AGENT_ERROR"
+	FailureCodeError          FailureClass = "CODE_ERROR"
+	FailureTestFailure        FailureClass = "TEST_FAILURE"
+	FailureRequirementFailure FailureClass = "REQUIREMENT_FAILURE"
+	FailurePolicyBlock        FailureClass = "POLICY_BLOCK"
+	FailureUserDecision       FailureClass = "USER_DECISION"
+	FailureEnvironmentBlocker FailureClass = "ENVIRONMENT_BLOCKER"
+	FailureExternalDependency FailureClass = "EXTERNAL_DEPENDENCY"
+	FailureToolFailure        FailureClass = "TOOL_FAILURE"
+	FailureTimeout            FailureClass = "TIMEOUT"
+	FailureUnknown            FailureClass = "UNKNOWN"
+)
+
+type FailureDiagnosis struct {
+	Class                FailureClass `json:"class" yaml:"class"`
+	Summary              string       `json:"summary" yaml:"summary"`
+	Details              string       `json:"details,omitempty" yaml:"details,omitempty"`
+	Target               string       `json:"target,omitempty" yaml:"target,omitempty"`
+	RecoverableByHarness bool         `json:"recoverableByHarness" yaml:"recoverableByHarness"`
+	RecoveryInstruction  string       `json:"recoveryInstruction,omitempty" yaml:"recoveryInstruction,omitempty"`
+	RequiresHuman        bool         `json:"requiresHuman" yaml:"requiresHuman"`
+}
+
+type RetryStrategy struct {
+	Attempt          int       `json:"attempt" yaml:"attempt"`
+	Reason           string    `json:"reason" yaml:"reason"`
+	PreviousFailure  string    `json:"previousFailure" yaml:"previousFailure"`
+	FailureType      string    `json:"failureType" yaml:"failureType"`
+	Hypothesis       string    `json:"hypothesis" yaml:"hypothesis"`
+	ExpectedInfoGain string    `json:"expectedInfoGain" yaml:"expectedInfoGain"`
+	Strategy         string    `json:"strategy" yaml:"strategy"`
+	IsLowInformation bool      `json:"isLowInformation" yaml:"isLowInformation"`
+	CreatedAt        time.Time `json:"createdAt" yaml:"createdAt"`
+}
+
 type Assumption struct {
 	ID         string  `json:"id"`
 	Statement  string  `json:"statement"`
@@ -222,36 +279,48 @@ type PolicyDecision struct {
 }
 
 type Checkpoint struct {
-	ID               string      `json:"id" yaml:"id"`
-	WorkOrderID      string      `json:"workOrderId" yaml:"workOrderId"`
-	State            string      `json:"state" yaml:"state"`
-	Completed        []string    `json:"completed,omitempty" yaml:"completed,omitempty"`
-	Pending          []string    `json:"pending,omitempty" yaml:"pending,omitempty"`
-	ChangedFiles     []string    `json:"changedFiles,omitempty" yaml:"changedFiles,omitempty"`
-	LastCommit       string      `json:"lastCommit,omitempty" yaml:"lastCommit,omitempty"`
-	ContextManifest  string      `json:"contextManifest,omitempty" yaml:"contextManifest,omitempty"`
-	Unresolved       []string    `json:"unresolvedQuestions,omitempty" yaml:"unresolvedQuestions,omitempty"`
-	Blockers         []string    `json:"blockers,omitempty" yaml:"blockers,omitempty"`
-	SchemaVersion    string      `json:"schemaVersion,omitempty" yaml:"schemaVersion,omitempty"`
-	HarnessID        string      `json:"harnessId,omitempty" yaml:"harnessId,omitempty"`
-	HarnessSessionID string      `json:"harnessSessionId,omitempty" yaml:"harnessSessionId,omitempty"`
-	RunID            string      `json:"runId,omitempty" yaml:"runId,omitempty"`
-	NextAction       *NextAction `json:"nextAction,omitempty" yaml:"nextAction,omitempty"`
-	CreatedAt        time.Time   `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
+	ID               string              `json:"id" yaml:"id"`
+	WorkOrderID      string              `json:"workOrderId" yaml:"workOrderId"`
+	State            string              `json:"state" yaml:"state"`
+	Phase            string              `json:"phase,omitempty" yaml:"phase,omitempty"`
+	Completed        []string            `json:"completed,omitempty" yaml:"completed,omitempty"`
+	Pending          []string            `json:"pending,omitempty" yaml:"pending,omitempty"`
+	ChangedFiles     []string            `json:"changedFiles,omitempty" yaml:"changedFiles,omitempty"`
+	LastCommit       string              `json:"lastCommit,omitempty" yaml:"lastCommit,omitempty"`
+	ContextManifest  string              `json:"contextManifest,omitempty" yaml:"contextManifest,omitempty"`
+	Unresolved       []string            `json:"unresolvedQuestions,omitempty" yaml:"unresolvedQuestions,omitempty"`
+	Blockers         []string            `json:"blockers,omitempty" yaml:"blockers,omitempty"`
+	SchemaVersion    string              `json:"schemaVersion,omitempty" yaml:"schemaVersion,omitempty"`
+	HarnessID        string              `json:"harnessId,omitempty" yaml:"harnessId,omitempty"`
+	HarnessSessionID string              `json:"harnessSessionId,omitempty" yaml:"harnessSessionId,omitempty"`
+	LastPromptID     string              `json:"lastPromptId,omitempty" yaml:"lastPromptId,omitempty"`
+	EvidenceIDs      []string            `json:"evidenceIds,omitempty" yaml:"evidenceIds,omitempty"`
+	Validations      []ValidationSummary `json:"validations,omitempty" yaml:"validations,omitempty"`
+	RunID            string              `json:"runId,omitempty" yaml:"runId,omitempty"`
+	NextAction       *NextAction         `json:"nextAction,omitempty" yaml:"nextAction,omitempty"`
+	CreatedAt        time.Time           `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
+}
+
+type ValidationSummary struct {
+	Name   string `json:"name" yaml:"name"`
+	Tier   int    `json:"tier" yaml:"tier"`
+	Passed bool   `json:"passed" yaml:"passed"`
 }
 
 type Learning struct {
-	ID                string   `json:"id" yaml:"id"`
-	Scope             string   `json:"scope" yaml:"scope"`
-	Observation       string   `json:"observation" yaml:"observation"`
-	BeforeEvidenceIDs []string `json:"beforeEvidenceIds,omitempty" yaml:"beforeEvidenceIds,omitempty"`
-	EvidenceIDs       []string `json:"evidenceIds,omitempty" yaml:"evidenceIds,omitempty"`
-	Confidence        float64  `json:"confidence" yaml:"confidence"`
-	ProposedChange    string   `json:"proposedChange" yaml:"proposedChange"`
-	Outcome           string   `json:"outcome,omitempty" yaml:"outcome,omitempty"`
-	Rollback          string   `json:"rollback,omitempty" yaml:"rollback,omitempty"`
-	Status            string   `json:"status" yaml:"status"`
-	Version           int      `json:"version" yaml:"version"`
+	ID                string    `json:"id" yaml:"id"`
+	Scope             string    `json:"scope" yaml:"scope"`
+	Observation       string    `json:"observation" yaml:"observation"`
+	BeforeEvidenceIDs []string  `json:"beforeEvidenceIds,omitempty" yaml:"beforeEvidenceIds,omitempty"`
+	EvidenceIDs       []string  `json:"evidenceIds,omitempty" yaml:"evidenceIds,omitempty"`
+	Confidence        float64   `json:"confidence" yaml:"confidence"`
+	ProposedChange    string    `json:"proposedChange" yaml:"proposedChange"`
+	Outcome           string    `json:"outcome,omitempty" yaml:"outcome,omitempty"`
+	Rollback          string    `json:"rollback,omitempty" yaml:"rollback,omitempty"`
+	Status            string    `json:"status" yaml:"status"`
+	Version           int       `json:"version" yaml:"version"`
+	CreatedAt         time.Time `json:"createdAt,omitempty" yaml:"createdAt,omitempty"`
+	UpdatedAt         time.Time `json:"updatedAt,omitempty" yaml:"updatedAt,omitempty"`
 }
 
 type Artifact struct {

@@ -32,6 +32,7 @@ architecture/
 decisions/
 assumptions/
 work/
+prompts/
 checkpoints/
 evidence/
 learning/
@@ -39,9 +40,9 @@ policies/
 manifests/
 ```
 
-The core entities are Project, Requirement, Decision, Assumption, WorkOrder, WorkPacket, HarnessRun, Observation, Artifact, Evidence, Finding, PolicyDecision, Checkpoint, Learning, Release and Capability.
+The core entities are Project, Requirement, Decision, Assumption, WorkOrder, WorkPacket, Prompt, HarnessRun, Observation, Artifact, Evidence, Finding, PolicyDecision, Checkpoint, Learning, Release and Capability.
 
-Keystone distinguishes user requirements, observed facts, decisions, assumptions, agent proposals and derived recommendations. Critical state cannot exist only in conversation history.
+Keystone distinguishes user requirements, observed facts, decisions, assumptions, agent proposals and derived recommendations. Critical state cannot exist only in conversation history. Every harness prompt is durably archived in `.keystone/prompts/{promptID}.json` with explicit turn reason, strategy, hypothesis, expected information gain, and context manifest provenance.
 
 ## Technology neutrality
 
@@ -90,6 +91,19 @@ Evidence is scoped and invalidated when relevant inputs change.
 The supervisor evaluates outcome and harness behavior. V1 signals include unsupported completion claims, requirement drift, architecture drift, repeated/no-progress loops, unexpected scope, failed validation and excessive repeated activity.
 
 Intervention is minimal: observe normal behavior, record minor inefficiency, optimize repeated inefficiency, intervene on drift, verify unsupported completion, replan loops, and stop/gate security or destructive risk.
+
+## Multi-turn control loop and prompt dispatch
+
+Each harness turn follows a strict canonical event sequence:
+`ContextCompiled` → `PromptGenerated` → `PromptDispatched` → `HarnessTurnStarted` → `HarnessObserved` → `HarnessTurnCompleted` → `SupervisorEvaluation` → `NextAction`.
+
+Harness sessions are preserved across turns via `HARNESS_SESSION_RESUMED`. Keystone never generates synthetic harness switch events when the active harness remains the same.
+
+## Environment blocker recovery ("Let the harness fix it")
+
+When deterministic validation encounters an environmental failure (e.g. PostgreSQL, MySQL, Redis, MongoDB, or local port unavailable), Keystone classifies the failure as an `ENVIRONMENT_BLOCKER`. If recoverable by the harness using project configuration (e.g. docker-compose, service restart, local scripts), Keystone generates a targeted recovery prompt instructing the harness to diagnose and recover the local service, verify connectivity, and rerun validation.
+
+If consecutive attempts repeat the exact same failure without code or environment progress, Keystone's supervisor flags a `Loop` finding and halts with an `ASK` decision rather than burning attempts in an infinite retry cycle.
 
 ## Policy and authority
 

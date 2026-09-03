@@ -114,3 +114,35 @@ func TestREPLExecutePrompt(t *testing.T) {
 		t.Errorf("expected RUN COMPLETE after prompt execution, got output: %s", output)
 	}
 }
+
+func TestMapNaturalCommand(t *testing.T) {
+	cases := map[string]string{
+		"help":            "/help",
+		"what can you do": "/help",
+		"commands":        "/help",
+		"list sessions":   "/sessions",
+		"sessions":        "/sessions",
+		"show sessions":   "/sessions",
+		"list projects":   "/projects",
+		"projects":        "/projects",
+		"doctor":          "/doctor",
+		"check health":    "/doctor",
+		"verify":          "/verify",
+		"run tests":       "/verify",
+		"status":          "/status",
+		"show status":     "/status",
+		"clear":           "/clear",
+		"new":             "/new",
+	}
+
+	for input, expected := range cases {
+		mapped := mapNaturalCommand(input)
+		if mapped != expected {
+			t.Errorf("mapNaturalCommand(%q) = %q, expected %q", input, mapped, expected)
+		}
+	}
+
+	if mapNaturalCommand("implement user authentication") != "" {
+		t.Errorf("expected regular prompt not to be mapped to slash command")
+	}
+}

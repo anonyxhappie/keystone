@@ -64,6 +64,13 @@ func Replay(runID string, events []observation.Event) (ReplayReport, error) {
 			if to, ok := event.Payload["to"].(string); ok && to != "" {
 				r.HarnessID = to
 			}
+		case "HARNESS_SESSION_RESUMED":
+			if hid, ok := event.Payload["harnessId"].(string); ok && hid != "" {
+				r.HarnessID = hid
+			}
+			if sid, ok := event.Payload["sessionId"].(string); ok && sid != "" {
+				r.HarnessSessionID = sid
+			}
 		case "STATE_TRANSITION":
 			from, _ := event.Payload["from"].(string)
 			to, _ := event.Payload["to"].(string)

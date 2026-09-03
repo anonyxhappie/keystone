@@ -23,7 +23,7 @@ func (s Store) Init(name string, capabilities []domain.Capability) (domain.Proje
 	if err := os.MkdirAll(filepath.Join(s.Root, Dir, "requirements"), 0o700); err != nil {
 		return domain.Project{}, err
 	}
-	for _, d := range []string{"architecture", "decisions", "assumptions", "work", "checkpoints", "evidence", "learning", "policies", "manifests", "artifacts", "harnesses", "harness-sessions", "harness-runs", "validations", "releases", "deployments", "environments", "incidents", "approvals", "control"} {
+	for _, d := range []string{"architecture", "decisions", "assumptions", "work", "prompts", "checkpoints", "evidence", "learning", "policies", "manifests", "artifacts", "harnesses", "harness-sessions", "harness-runs", "validations", "releases", "deployments", "environments", "incidents", "approvals", "control"} {
 		if err := os.MkdirAll(filepath.Join(s.Root, Dir, d), 0o700); err != nil {
 			return domain.Project{}, err
 		}

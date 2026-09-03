@@ -24,6 +24,7 @@ type Snapshot struct {
 	ChangedFiles     []string                 `json:"changedFiles,omitempty"`
 	ContextManifest  string                   `json:"contextManifest,omitempty"`
 	CheckpointID     string                   `json:"checkpointId,omitempty"`
+	LastPromptID     string                   `json:"lastPromptId,omitempty"`
 	Paused           bool                     `json:"paused,omitempty"`
 	HarnessSelection *domain.HarnessSelection `json:"harnessSelection,omitempty"`
 	ReadOnly         bool                     `json:"readOnly,omitempty"`

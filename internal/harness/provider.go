@@ -140,6 +140,16 @@ func (a *CLIAdapter) Start(packet domain.WorkPacket) (string, error) {
 	return a.start(Render(packet), "")
 }
 
+func (a *CLIAdapter) DispatchPrompt(p domain.Prompt) (string, error) {
+	resumeSession := p.HarnessSessionID
+	if resumeSession == "" {
+		a.mu.Lock()
+		resumeSession = a.sessionID
+		a.mu.Unlock()
+	}
+	return a.start(p.Content, resumeSession)
+}
+
 func (a *CLIAdapter) Send(prompt string) error {
 	a.mu.Lock()
 	active := a.started && !a.finished
@@ -188,7 +198,16 @@ func (a *CLIAdapter) start(prompt, resumeSession string) (string, error) {
 	a.mu.Unlock()
 
 	args := a.args(prompt, resumeSession)
-	cmd := exec.CommandContext(a.ctx, a.command, args...)
+	turnTimeout := time.Duration(a.Config.TimeoutSeconds) * time.Second
+	if turnTimeout <= 0 {
+		turnTimeout = 300 * time.Second
+	}
+	baseCtx := a.ctx
+	if baseCtx == nil || baseCtx.Err() != nil {
+		baseCtx = context.Background()
+	}
+	turnCtx, _ := context.WithTimeout(baseCtx, turnTimeout)
+	cmd := exec.CommandContext(turnCtx, a.command, args...)
 	cmd.Dir = a.Root
 	cmd.Stdin = bytes.NewReader(nil)
 	stdout, err := cmd.StdoutPipe()

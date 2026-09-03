@@ -31,6 +31,23 @@ func captureOutput(f func()) string {
 	return buf.String()
 }
 
+func writeFixtureHarness(t *testing.T, root string) {
+	t.Helper()
+	harnessCfg := harness.Config{
+		Name:           "test-harness",
+		Command:        "sh",
+		Args:           []string{"-c", "read req; echo '[command_completed] go test ./...'; echo done; exit 0"},
+		TimeoutSeconds: 30,
+	}
+	b, err := json.Marshal(harnessCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, state.Dir, "harness.json"), b, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCLIAuditAll13Commands(t *testing.T) {
 	root := t.TempDir()
 
@@ -43,7 +60,7 @@ func TestCLIAuditAll13Commands(t *testing.T) {
 	out := captureOutput(func() {
 		fmt.Println(version)
 	})
-	if strings.TrimSpace(out) != "2.1.3" {
+	if strings.TrimSpace(out) != version {
 		t.Fatalf("unexpected version output: %q", out)
 	}
 
@@ -62,7 +79,7 @@ func TestCLIAuditAll13Commands(t *testing.T) {
 	out = captureOutput(func() {
 		runDoctor(root)
 	})
-	if !strings.Contains(out, "harnesses") || !strings.Contains(out, "2.1.3") {
+	if !strings.Contains(out, "harnesses") || !strings.Contains(out, version) {
 		t.Fatalf("doctor output unexpected: %q", out)
 	}
 
@@ -74,15 +91,8 @@ func TestCLIAuditAll13Commands(t *testing.T) {
 		t.Fatalf("ask output missing objective: %q", out)
 	}
 
-	// Configure a test harness in .keystone/harness.json
-	harnessConfig := harness.Config{
-		Name:           "test-harness",
-		Command:        "sh",
-		Args:           []string{"-c", "read req; echo '[command_completed] go test ./...'; echo done; exit 0"},
-		TimeoutSeconds: 30,
-	}
-	hConfigBytes, _ := json.Marshal(harnessConfig)
-	_ = os.WriteFile(filepath.Join(root, state.Dir, "harness.json"), hConfigBytes, 0600)
+	// Configure a deterministic test harness in .keystone/harness.json.
+	writeFixtureHarness(t, root)
 
 	// 5. keystone validate
 	out = captureOutput(func() {
@@ -259,8 +269,8 @@ func TestParseRunArgs(t *testing.T) {
 func TestCLIRichTerminalOutput(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
-		"go.mod":     "module testrun\n\ngo 1.23\n",
-		"main.go":    "package main\n\nfunc main() {}\n",
+		"go.mod":       "module testrun\n\ngo 1.23\n",
+		"main.go":      "package main\n\nfunc main() {}\n",
 		"main_test.go": "package main\n\nimport \"testing\"\n\nfunc TestMain(t *testing.T) {}\n",
 	}
 	for name, content := range files {
@@ -272,10 +282,7 @@ func TestCLIRichTerminalOutput(t *testing.T) {
 	if _, err := s.Init("test-project", []domain.Capability{{Kind: "language", Name: "go"}, {Kind: "test", Name: "go"}}); err != nil {
 		t.Fatal(err)
 	}
-
-	harnessCfg := harness.Config{Name: "test-harness", Command: "sh", Args: []string{"-c", "read line; echo done"}, TimeoutSeconds: 10}
-	cfgBytes, _ := json.Marshal(harnessCfg)
-	_ = os.WriteFile(filepath.Join(root, state.Dir, "harness.json"), cfgBytes, 0600)
+	writeFixtureHarness(t, root)
 
 	out := captureOutput(func() {
 		runRun(root, []string{"inspect", "the", "repository"})

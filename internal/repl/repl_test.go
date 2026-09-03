@@ -2,6 +2,7 @@ package repl
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,61 +30,43 @@ func setupTestProject(t *testing.T) string {
 		t.Fatal(err)
 	}
 
-	harnessCfg := harness.Config{Name: "test-harness", Command: "sh", Args: []string{"-c", "read line; echo done"}, TimeoutSeconds: 10}
-	cfgBytes := []byte(`{"name":"test-harness","command":"sh","args":["-c","read line; echo done"],"timeoutSeconds":10}`)
+	provider := filepath.Join(root, "codex-fixture")
+	script := `#!/bin/sh
+if [ "$1" = "--version" ]; then printf 'codex-fixture 1.0\n'; exit 0; fi
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-repl-fixture"}'
+printf '%s\n' '{"type":"turn.started"}'
+printf '%s\n' '{"type":"item.completed","item":{"id":"msg-1","type":"agent_message","text":"fixture completed"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":12,"output_tokens":8}}'
+`
+	if err := os.WriteFile(provider, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	harnessCfg := harness.Config{Name: "codex", Provider: "codex", Command: provider, TimeoutSeconds: 10}
+	cfgBytes, err := json.Marshal(harnessCfg)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(root, state.Dir, "harness.json"), cfgBytes, 0600); err != nil {
 		t.Fatal(err)
 	}
-	_ = harnessCfg
-
 	return root
 }
 
 func TestREPLSlashCommands(t *testing.T) {
 	root := setupTestProject(t)
-
-	input := strings.Join([]string{
-		"/help",
-		"/harness",
-		"/harness codex",
-		"/sessions",
-		"/new",
-		"/projects",
-		"/status",
-		"/clear",
-		"/exit",
-	}, "\n") + "\n"
-
+	input := strings.Join([]string{"/help", "/harness", "/harness codex", "/sessions", "/new", "/projects", "/status", "/clear", "/exit"}, "\n") + "\n"
 	in := strings.NewReader(input)
 	var out bytes.Buffer
-
 	r := New(root, "antigravity", in, &out)
-	err := r.Run()
-	if err != nil {
-		t.Fatalf("unexpected REPL error: %v", err)
-	}
-
+	if err := r.Run(); err != nil { t.Fatalf("unexpected REPL error: %v", err) }
 	output := out.String()
-	for _, expected := range []string{
-		"Available Slash Commands",
-		"Active harness:",
-		"antigravity",
-		"Switched active harness to",
-		"codex",
-		"Started fresh conversation context",
-		"Local Code Projects",
-		"Keystone Project Status",
-		"Exiting Keystone interactive session",
-	} {
-		if !strings.Contains(output, expected) {
-			t.Errorf("missing expected text %q in REPL output: %s", expected, output)
-		}
+	for _, expected := range []string{"Available Slash Commands", "Active harness:", "antigravity", "Switched active harness to", "codex", "Started fresh conversation context", "Local Code Projects", "Keystone Project Status", "Exiting Keystone interactive session"} {
+		if !strings.Contains(output, expected) { t.Errorf("missing expected text %q in REPL output: %s", expected, output) }
 	}
 }
 
 func TestREPLExecutePrompt(t *testing.T) {
 	root := setupTestProject(t)
-
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 	codexDir := filepath.Join(tempHome, ".codex")
@@ -91,60 +74,20 @@ func TestREPLExecutePrompt(t *testing.T) {
 	indexLine := `{"id":"SES-EXISTING-1","thread_name":"Existing Test Thread","updated_at":"2026-03-13T15:28:39Z"}` + "\n"
 	_ = os.WriteFile(filepath.Join(codexDir, "session_index.jsonl"), []byte(indexLine), 0600)
 
-	input := strings.Join([]string{
-		"/sessions",
-		"/resume 1",
-		"/harness auto",
-		"inspect the codebase",
-		"/exit",
-	}, "\n") + "\n"
-
+	input := strings.Join([]string{"/sessions", "/resume 1", "/harness auto", "inspect the codebase", "/exit"}, "\n") + "\n"
 	in := strings.NewReader(input)
 	var out bytes.Buffer
-
 	r := New(root, "auto", in, &out)
-	err := r.Run()
-	if err != nil {
-		t.Fatalf("unexpected REPL error: %v", err)
-	}
-
+	if err := r.Run(); err != nil { t.Fatalf("unexpected REPL error: %v", err) }
 	output := out.String()
-	if !strings.Contains(output, "Resumed session #1: SES-EXISTING-1") {
-		t.Errorf("expected session #1 resumed, got output: %s", output)
-	}
-	if !strings.Contains(output, "RUN COMPLETE") {
-		t.Errorf("expected RUN COMPLETE after prompt execution, got output: %s", output)
-	}
+	if !strings.Contains(output, "Resumed session #1: SES-EXISTING-1") { t.Errorf("expected session #1 resumed, got output: %s", output) }
+	if !strings.Contains(output, "RUN COMPLETE") { t.Errorf("expected RUN COMPLETE after prompt execution, got output: %s", output) }
 }
 
 func TestMapNaturalCommand(t *testing.T) {
-	cases := map[string]string{
-		"help":            "/help",
-		"what can you do": "/help",
-		"commands":        "/help",
-		"list sessions":   "/sessions",
-		"sessions":        "/sessions",
-		"show sessions":   "/sessions",
-		"list projects":   "/projects",
-		"projects":        "/projects",
-		"doctor":          "/doctor",
-		"check health":    "/doctor",
-		"verify":          "/verify",
-		"run tests":       "/verify",
-		"status":          "/status",
-		"show status":     "/status",
-		"clear":           "/clear",
-		"new":             "/new",
-	}
-
+	cases := map[string]string{"help":"/help", "what can you do":"/help", "commands":"/help", "list sessions":"/sessions", "sessions":"/sessions", "show sessions":"/sessions", "list projects":"/projects", "projects":"/projects", "doctor":"/doctor", "check health":"/doctor", "verify":"/verify", "run tests":"/verify", "status":"/status", "show status":"/status", "clear":"/clear", "new":"/new"}
 	for input, expected := range cases {
-		mapped := mapNaturalCommand(input)
-		if mapped != expected {
-			t.Errorf("mapNaturalCommand(%q) = %q, expected %q", input, mapped, expected)
-		}
+		if mapped := mapNaturalCommand(input); mapped != expected { t.Errorf("mapNaturalCommand(%q) = %q, expected %q", input, mapped, expected) }
 	}
-
-	if mapNaturalCommand("implement user authentication") != "" {
-		t.Errorf("expected regular prompt not to be mapped to slash command")
-	}
+	if mapNaturalCommand("implement user authentication") != "" { t.Errorf("expected regular prompt not to be mapped to slash command") }
 }

@@ -271,11 +271,12 @@ func (pe *PromptEditor) ReadLine() (string, error) {
 				selected := matches[selectedIndex]
 				if selected.Immediate {
 					clearMenuLines()
-					fmt.Fprint(pe.out, "\r\n")
 					result := selected.InsertText
 					if result == "" {
 						result = selected.Command
 					}
+					fmt.Fprint(pe.out, "\r\033[2K")
+					fmt.Fprintf(pe.out, "%s> %s%s\r\n", Bold+Cyan, Reset, result)
 					pe.history = append(pe.history, result)
 					return result, nil
 				}
@@ -294,8 +295,9 @@ func (pe *PromptEditor) ReadLine() (string, error) {
 			}
 
 			clearMenuLines()
-			fmt.Fprint(pe.out, "\r\n")
 			result := string(buffer)
+			fmt.Fprint(pe.out, "\r\033[2K")
+			fmt.Fprintf(pe.out, "%s> %s%s\r\n", Bold+Cyan, Reset, result)
 			if len(strings.TrimSpace(result)) > 0 {
 				pe.history = append(pe.history, result)
 			}

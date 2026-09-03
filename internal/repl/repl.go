@@ -13,7 +13,9 @@ import (
 
 	"github.com/anonyxhappie/keystone/internal/control"
 	"github.com/anonyxhappie/keystone/internal/domain"
+	"github.com/anonyxhappie/keystone/internal/git"
 	"github.com/anonyxhappie/keystone/internal/harness"
+	"github.com/anonyxhappie/keystone/internal/observation"
 	"github.com/anonyxhappie/keystone/internal/session"
 	"github.com/anonyxhappie/keystone/internal/state"
 	"github.com/anonyxhappie/keystone/internal/ui"
@@ -169,6 +171,10 @@ func (r *REPL) handleSlashCommand(input string) {
 		r.handleVerify()
 	case "/review":
 		r.handleReview()
+	case "/replay":
+		r.handleReplay(args)
+	case "/doctor":
+		r.handleDoctor()
 	case "/clear":
 		fmt.Fprint(r.out, "\033[H\033[2J")
 	default:
@@ -187,6 +193,8 @@ func (r *REPL) showHelp() {
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/status"+ui.Reset, "Inspect current project state and latest checkpoint")
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/verify"+ui.Reset, "Run deterministic validation checks (tests/linters) on demand")
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/review"+ui.Reset, "Show supervisor findings, drift detection, and advice")
+	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/replay [run-id]"+ui.Reset, "Replay execution events of a previous run")
+	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/doctor"+ui.Reset, "Check environment, harness health, and git status")
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/clear"+ui.Reset, "Clear terminal screen")
 	fmt.Fprintf(r.out, "  %-24s %s\n\n", ui.Cyan+"/exit"+ui.Reset, "Exit the interactive session")
 }
@@ -387,6 +395,58 @@ func (r *REPL) handleReview() {
 		fmt.Fprintf(r.out, "  • [%s] %s: %s\n", f.Severity, ui.Bold+f.Type+ui.Reset, f.Explanation)
 	}
 	fmt.Fprintln(r.out)
+}
+
+func (r *REPL) handleDoctor() {
+	fmt.Fprintf(r.out, "\n%s\n", ui.Bold+"Keystone System Diagnostics:"+ui.Reset)
+	fmt.Fprintf(r.out, "  • Version:   %s\n", "2.1.3")
+	fmt.Fprintf(r.out, "  • Workspace: %s\n", r.root)
+
+	gitInfo := git.Inspect(context.Background(), r.root)
+	gitStatus := ui.Green + "Clean" + ui.Reset
+	if gitInfo.Dirty {
+		gitStatus = ui.Yellow + fmt.Sprintf("Dirty (%d uncommitted files preserved)", len(gitInfo.ChangedFiles)) + ui.Reset
+	}
+	head := gitInfo.Head
+	if len(head) > 8 {
+		head = head[:8]
+	}
+	fmt.Fprintf(r.out, "  • Git State: %s (Head: %s)\n", gitStatus, head)
+
+	harnesses := harness.Discover(r.root)
+	fmt.Fprintf(r.out, "  • Harnesses:\n")
+	for _, h := range harnesses {
+		mark := ui.Green + "✔ Available" + ui.Reset
+		fmt.Fprintf(r.out, "    - %-12s %s\n", ui.Bold+h.Name+ui.Reset, mark)
+	}
+	fmt.Fprintln(r.out)
+}
+
+func (r *REPL) handleReplay(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintf(r.out, "Usage: /replay <run-id>\nExample: /replay RUN-1788427226573640000\n\n")
+		return
+	}
+	runID := args[0]
+	j, err := observation.Open(filepath.Join(r.root, state.Dir, "events.jsonl"))
+	if err != nil {
+		fmt.Fprintf(r.out, "%s Failed to open events: %v\n\n", ui.Red+"✘"+ui.Reset, err)
+		return
+	}
+	events, err := j.Replay(runID)
+	if err != nil {
+		fmt.Fprintf(r.out, "%s Replay error: %v\n\n", ui.Red+"✘"+ui.Reset, err)
+		return
+	}
+	report, err := control.Replay(runID, events)
+	if err != nil {
+		fmt.Fprintf(r.out, "%s Replay execution error: %v\n\n", ui.Red+"✘"+ui.Reset, err)
+		return
+	}
+	fmt.Fprintf(r.out, "\n%s\n", ui.Bold+"Replay of "+runID+":"+ui.Reset)
+	fmt.Fprintf(r.out, "  • State:      %s\n", report.State)
+	fmt.Fprintf(r.out, "  • Harness:    %s\n", report.HarnessID)
+	fmt.Fprintf(r.out, "  • Events:     %d\n\n", len(events))
 }
 
 func (r *REPL) executePrompt(prompt string) {

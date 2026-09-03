@@ -22,3 +22,34 @@ func TestAssessRiskDetectsPolicySensitiveRequests(t *testing.T) {
 		t.Fatalf("expected release risk: %+v", release)
 	}
 }
+
+func TestReadOnlyRequestDetectionAndPacket(t *testing.T) {
+	cases := []string{
+		"Audit the repository. Do not modify any files.",
+		"Inspect codebase. Do not make changes.",
+		"Run read-only audit of configuration",
+		"Inspect only the architecture",
+	}
+	for _, c := range cases {
+		if !IsReadOnlyRequest(c) {
+			t.Fatalf("expected %q to be recognized as read-only", c)
+		}
+		o := NewOrder(c)
+		if !o.ReadOnly {
+			t.Fatalf("expected order for %q to be marked ReadOnly", c)
+		}
+		p := Packet(o)
+		if !p.ReadOnly {
+			t.Fatalf("expected packet for %q to be marked ReadOnly", c)
+		}
+		hasCriteria := false
+		for _, crit := range p.CompletionCriteria {
+			if crit == "no repository mutations occurred" {
+				hasCriteria = true
+			}
+		}
+		if !hasCriteria {
+			t.Fatalf("expected packet for %q to include no mutations criterion", c)
+		}
+	}
+}

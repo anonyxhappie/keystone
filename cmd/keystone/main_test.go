@@ -42,7 +42,7 @@ func TestCLIAuditAll13Commands(t *testing.T) {
 	out := captureOutput(func() {
 		fmt.Println(version)
 	})
-	if strings.TrimSpace(out) != "2.1.1" {
+	if strings.TrimSpace(out) != "2.1.2" {
 		t.Fatalf("unexpected version output: %q", out)
 	}
 
@@ -61,7 +61,7 @@ func TestCLIAuditAll13Commands(t *testing.T) {
 	out = captureOutput(func() {
 		runDoctor(root)
 	})
-	if !strings.Contains(out, "harnesses") || !strings.Contains(out, "2.1.1") {
+	if !strings.Contains(out, "harnesses") || !strings.Contains(out, "2.1.2") {
 		t.Fatalf("doctor output unexpected: %q", out)
 	}
 
@@ -187,5 +187,62 @@ func TestCLIAuditAll13Commands(t *testing.T) {
 	})
 	if !strings.Contains(out, "COMPLETE") {
 		t.Fatalf("continue output unexpected: %q", out)
+	}
+}
+
+func TestParseRunArgs(t *testing.T) {
+	cases := []struct {
+		args        []string
+		wantHarness string
+		wantReq     string
+		wantErr     bool
+	}{
+		{
+			args:        []string{"--harness", "codex", "inspect", "the", "codebase"},
+			wantHarness: "codex",
+			wantReq:     "inspect the codebase",
+			wantErr:     false,
+		},
+		{
+			args:        []string{"--harness", "antigravity", "inspect", "the", "codebase"},
+			wantHarness: "antigravity",
+			wantReq:     "inspect the codebase",
+			wantErr:     false,
+		},
+		{
+			args:        []string{"--harness=auto", "audit", "only"},
+			wantHarness: "auto",
+			wantReq:     "audit only",
+			wantErr:     false,
+		},
+		{
+			args:    []string{"--harness", "invalid-harness", "audit"},
+			wantErr: true,
+		},
+		{
+			args:        []string{"plain", "request", "without", "flag"},
+			wantHarness: "",
+			wantReq:     "plain request without flag",
+			wantErr:     false,
+		},
+	}
+
+	for _, c := range cases {
+		h, r, err := parseRunArgs(c.args)
+		if c.wantErr {
+			if err == nil {
+				t.Fatalf("expected error for args: %v, got h=%q, r=%q", c.args, h, r)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("unexpected error for args %v: %v", c.args, err)
+		}
+		if h != c.wantHarness {
+			t.Fatalf("args %v: want harness %q, got %q", c.args, c.wantHarness, h)
+		}
+		if r != c.wantReq {
+			t.Fatalf("args %v: want req %q, got %q", c.args, c.wantReq, r)
+		}
 	}
 }

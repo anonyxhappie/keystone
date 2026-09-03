@@ -24,7 +24,7 @@ import (
 	"github.com/anonyxhappie/keystone/internal/work"
 )
 
-const version = "2.1.1"
+const version = "2.1.2"
 
 func main() {
 	args := os.Args[1:]
@@ -131,16 +131,56 @@ func runAsk(root string, args []string) {
 	printJSON(packet)
 }
 
+func parseRunArgs(args []string) (harnessName string, request string, err error) {
+	words := []string{}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--harness" || arg == "-harness" {
+			if i+1 >= len(args) {
+				return "", "", fmt.Errorf("--harness requires an argument (e.g. codex, antigravity, auto)")
+			}
+			harnessName = args[i+1]
+			i++
+			continue
+		}
+		if strings.HasPrefix(arg, "--harness=") {
+			harnessName = strings.TrimPrefix(arg, "--harness=")
+			continue
+		}
+		if strings.HasPrefix(arg, "-harness=") {
+			harnessName = strings.TrimPrefix(arg, "-harness=")
+			continue
+		}
+		words = append(words, arg)
+	}
+
+	if harnessName != "" {
+		norm := strings.ToLower(strings.TrimSpace(harnessName))
+		if norm != "codex" && norm != "antigravity" && norm != "agy" && norm != "auto" {
+			return "", "", fmt.Errorf("invalid harness %q; valid options are: codex, antigravity, auto", harnessName)
+		}
+		harnessName = norm
+	}
+
+	request = strings.TrimSpace(strings.Join(words, " "))
+	return harnessName, request, nil
+}
+
 func runRun(root string, args []string) {
-	if len(args) == 0 {
+	harnessFlag, request, err := parseRunArgs(args)
+	if err != nil {
+		fatal(err)
+	}
+	if request == "" {
 		fatal(fmt.Errorf("run requires a request"))
 	}
 	e, err := control.Open(root)
 	if err != nil {
 		fatal(err)
 	}
+	e.RequestedHarness = harnessFlag
 	e.AdapterFactory = localFactory(root)
-	report, err := e.Run(context.Background(), strings.Join(args, " "), nil)
+	report, err := e.Run(context.Background(), request, nil)
 	if err != nil {
 		fatal(err)
 	}
@@ -294,7 +334,17 @@ func runReview(root string) {
 	if len(invalidEvidence) == 0 && len(snap.Findings) == 0 && snap.Lifecycle == string(runtime.Complete) {
 		recommendation = "evidence and deterministic findings support the recorded completion"
 	}
-	printJSON(map[string]any{"state": snap.Lifecycle, "findings": snap.Findings, "invalidEvidence": invalidEvidence, "recommendation": recommendation})
+	reviewOutput := map[string]any{"state": snap.Lifecycle, "findings": snap.Findings, "invalidEvidence": invalidEvidence, "recommendation": recommendation}
+	if snap.HarnessSelection != nil {
+		reviewOutput["harnessSelection"] = snap.HarnessSelection
+	}
+	if snap.ReadOnly {
+		reviewOutput["readOnly"] = snap.ReadOnly
+	}
+	if len(snap.Mutations) > 0 {
+		reviewOutput["mutations"] = snap.Mutations
+	}
+	printJSON(reviewOutput)
 }
 
 func runReplay(root string, args []string) {

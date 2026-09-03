@@ -83,19 +83,41 @@ type Constraint struct {
 	Source    string `json:"source,omitempty"`
 }
 
+type HarnessSelection struct {
+	RequestedHarness   string   `json:"requestedHarness,omitempty" yaml:"requestedHarness,omitempty"`
+	SelectionMode      string   `json:"selectionMode,omitempty" yaml:"selectionMode,omitempty"` // "explicit" | "auto"
+	SelectedHarness    string   `json:"selectedHarness,omitempty" yaml:"selectedHarness,omitempty"`
+	SelectionReason    string   `json:"selectionReason,omitempty" yaml:"selectionReason,omitempty"`
+	AvailableHarnesses []string `json:"availableHarnesses,omitempty" yaml:"availableHarnesses,omitempty"`
+	Fallback           string   `json:"fallback,omitempty" yaml:"fallback,omitempty"`
+	PolicyDecision     string   `json:"policyDecision,omitempty" yaml:"policyDecision,omitempty"`
+}
+
+type FileMutation struct {
+	Path          string `json:"path" yaml:"path"`
+	Action        string `json:"action" yaml:"action"` // "created", "modified", "deleted"
+	PreExisting   bool   `json:"preExisting" yaml:"preExisting"`
+	PreRunSHA256  string `json:"preRunSHA256,omitempty" yaml:"preRunSHA256,omitempty"`
+	CurrentSHA256 string `json:"currentSHA256,omitempty" yaml:"currentSHA256,omitempty"`
+	Restored      bool   `json:"restored" yaml:"restored"`
+	Error         string `json:"error,omitempty" yaml:"error,omitempty"`
+}
+
 type WorkOrder struct {
-	SchemaVersion string    `json:"schemaVersion,omitempty" yaml:"schemaVersion,omitempty"`
-	ID            string    `json:"id" yaml:"id"`
-	SourceRequest string    `json:"sourceRequest" yaml:"sourceRequest"`
-	Objective     string    `json:"objective" yaml:"objective"`
-	Requirements  []string  `json:"requirements,omitempty" yaml:"requirements,omitempty"`
-	Constraints   []string  `json:"constraints,omitempty" yaml:"constraints,omitempty"`
-	Risk          Risk      `json:"risk" yaml:"risk"`
-	Autonomy      string    `json:"autonomy" yaml:"autonomy"`
-	Status        Status    `json:"status" yaml:"status"`
-	CreatedAt     time.Time `json:"createdAt" yaml:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt,omitempty" yaml:"updatedAt,omitempty"`
-	RunID         string    `json:"runId,omitempty" yaml:"runId,omitempty"`
+	SchemaVersion    string            `json:"schemaVersion,omitempty" yaml:"schemaVersion,omitempty"`
+	ID               string            `json:"id" yaml:"id"`
+	SourceRequest    string            `json:"sourceRequest" yaml:"sourceRequest"`
+	Objective        string            `json:"objective" yaml:"objective"`
+	Requirements     []string          `json:"requirements,omitempty" yaml:"requirements,omitempty"`
+	Constraints      []string          `json:"constraints,omitempty" yaml:"constraints,omitempty"`
+	Risk             Risk              `json:"risk" yaml:"risk"`
+	Autonomy         string            `json:"autonomy" yaml:"autonomy"`
+	Status           Status            `json:"status" yaml:"status"`
+	CreatedAt        time.Time         `json:"createdAt" yaml:"createdAt"`
+	UpdatedAt        time.Time         `json:"updatedAt,omitempty" yaml:"updatedAt,omitempty"`
+	RunID            string            `json:"runId,omitempty" yaml:"runId,omitempty"`
+	HarnessSelection *HarnessSelection `json:"harnessSelection,omitempty" yaml:"harnessSelection,omitempty"`
+	ReadOnly         bool              `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
 }
 
 type Risk struct {
@@ -117,6 +139,7 @@ type WorkPacket struct {
 	ContextDecisions   []ContextDecision `json:"contextDecisions,omitempty" yaml:"contextDecisions,omitempty"`
 	ContextBudget      int               `json:"contextBudget,omitempty" yaml:"contextBudget,omitempty"`
 	ContextTokens      int               `json:"contextTokens,omitempty" yaml:"contextTokens,omitempty"`
+	ReadOnly           bool              `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
 }
 
 type ContextRef struct {

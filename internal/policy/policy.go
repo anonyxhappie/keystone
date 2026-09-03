@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -20,6 +21,43 @@ func Evaluate(action string) domain.PolicyDecision {
 		return domain.PolicyDecision{Decision: "APPROVE", Reason: reason, Policy: "default-v1", Allowed: false, RequiresApproval: true}
 	}
 	return domain.PolicyDecision{Decision: "CONTINUE", Reason: "action is permitted by default policy", Policy: "default-v1", Allowed: true}
+}
+
+// EvaluateHarnessSelection produces the policy decision for harness availability.
+func EvaluateHarnessSelection(requested string, available bool, reason string) domain.PolicyDecision {
+	if !available {
+		return domain.PolicyDecision{
+			Decision:         "REQUIRE_APPROVAL",
+			Reason:           reason,
+			Policy:           "harness-selection-v1",
+			Allowed:          false,
+			RequiresApproval: true,
+		}
+	}
+	return domain.PolicyDecision{
+		Decision: "ALLOW",
+		Reason:   fmt.Sprintf("harness %s is authorized and available", requested),
+		Policy:   "harness-selection-v1",
+		Allowed:  true,
+	}
+}
+
+// EvaluateReadOnly produces the policy decision for read-only constraint compliance.
+func EvaluateReadOnly(mutations []domain.FileMutation) domain.PolicyDecision {
+	if len(mutations) > 0 {
+		return domain.PolicyDecision{
+			Decision: "STOP",
+			Reason:   fmt.Sprintf("read-only policy violated: %d repository mutations detected", len(mutations)),
+			Policy:   "read-only-v1",
+			Allowed:  false,
+		}
+	}
+	return domain.PolicyDecision{
+		Decision: "ALLOW",
+		Reason:   "no repository mutations detected; read-only policy satisfied",
+		Policy:   "read-only-v1",
+		Allowed:  true,
+	}
 }
 
 // Command evaluates an argv vector without invoking a shell. It is deliberately

@@ -111,6 +111,122 @@ func Discover(root string) []Discovery {
 	return out
 }
 
+// SelectHarness authoritatively resolves the harness for a run.
+// If an explicit harness is requested, it MUST be satisfied; no silent fallback is permitted.
+// If unavailable, it produces a REQUIRE_APPROVAL policy decision and an informative error listing alternatives.
+// If auto mode is requested, Keystone selects an available harness and records why.
+func SelectHarness(ctx context.Context, root string, requested string) (Adapter, domain.HarnessSelection, error) {
+	discoveries := Discover(root)
+	availableMap := map[string]Discovery{}
+	availableList := []string{}
+	allDiscoveries := map[string]Discovery{}
+
+	for _, d := range discoveries {
+		allDiscoveries[d.Name] = d
+		if d.Provider != "" {
+			allDiscoveries[d.Provider] = d
+		}
+		if d.Available {
+			availableMap[d.Name] = d
+			availableList = append(availableList, d.Name)
+		}
+	}
+
+	reqTrimmed := strings.TrimSpace(requested)
+	selection := domain.HarnessSelection{
+		RequestedHarness:   reqTrimmed,
+		AvailableHarnesses: availableList,
+	}
+
+	isAuto := reqTrimmed == "" || strings.EqualFold(reqTrimmed, "auto")
+
+	if !isAuto {
+		// Explicit selection
+		selection.SelectionMode = "explicit"
+		norm := normalizeProvider(reqTrimmed)
+		if norm == "" {
+			if d, ok := allDiscoveries[reqTrimmed]; ok {
+				norm = d.Name
+			} else {
+				selection.PolicyDecision = "REQUIRE_APPROVAL"
+				selection.SelectionReason = fmt.Sprintf("unknown or unsupported harness %q; supported options are: codex, antigravity, auto", reqTrimmed)
+				return nil, selection, fmt.Errorf("invalid harness %q; supported harnesses are: codex, antigravity, auto", reqTrimmed)
+			}
+		}
+
+		d, exists := allDiscoveries[norm]
+		if !exists || !d.Available {
+			reason := "not installed or not available on PATH"
+			if exists && d.Reason != "" {
+				reason = d.Reason
+			}
+			selection.PolicyDecision = "REQUIRE_APPROVAL"
+			selection.SelectionReason = fmt.Sprintf("explicitly requested harness %q is unavailable: %s", reqTrimmed, reason)
+			var alternatives []string
+			for _, name := range availableList {
+				if name != "manual" {
+					alternatives = append(alternatives, name)
+				}
+			}
+			if len(alternatives) == 0 {
+				alternatives = []string{"none (install codex or agy)"}
+			}
+			return nil, selection, fmt.Errorf("requested harness %q is unavailable: %s (available alternatives: %s)", reqTrimmed, reason, strings.Join(alternatives, ", "))
+		}
+
+		// Explicit harness is available
+		selection.SelectedHarness = norm
+		selection.SelectionReason = fmt.Sprintf("user explicitly requested %s", norm)
+		selection.PolicyDecision = "ALLOW"
+		cfg := Config{
+			Name:           norm,
+			Provider:       norm,
+			Command:        defaultProviderCommand(norm),
+			TimeoutSeconds: 300,
+		}
+		if configuredCfg, err := LoadConfig(root); err == nil && (configuredCfg.Name == norm || configuredCfg.Provider == norm) {
+			cfg = configuredCfg
+		}
+		return NewAdapter(ctx, root, cfg), selection, nil
+	}
+
+	// Auto selection mode
+	selection.SelectionMode = "auto"
+	selection.RequestedHarness = "auto"
+
+	// 1. Check if configured harness.json exists and is valid
+	if cfg, err := LoadConfig(root); err == nil {
+		if d, ok := availableMap[cfg.Name]; ok && d.Available {
+			selection.SelectedHarness = cfg.Name
+			selection.SelectionReason = fmt.Sprintf("auto-selected configured harness %q from .keystone/harness.json", cfg.Name)
+			selection.PolicyDecision = "ALLOW"
+			return NewAdapter(ctx, root, cfg), selection, nil
+		}
+	}
+
+	// 2. In auto mode, pick an available provider (prefer antigravity or codex)
+	if d, ok := availableMap["antigravity"]; ok && d.Available {
+		selection.SelectedHarness = "antigravity"
+		selection.SelectionReason = "auto-selected antigravity (available on PATH and authenticated)"
+		selection.PolicyDecision = "ALLOW"
+		cfg := Config{Name: "antigravity", Provider: "antigravity", Command: defaultProviderCommand("antigravity"), TimeoutSeconds: 300}
+		return NewAdapter(ctx, root, cfg), selection, nil
+	}
+
+	if d, ok := availableMap["codex"]; ok && d.Available {
+		selection.SelectedHarness = "codex"
+		selection.SelectionReason = "auto-selected codex (available on PATH)"
+		selection.PolicyDecision = "ALLOW"
+		cfg := Config{Name: "codex", Provider: "codex", Command: defaultProviderCommand("codex"), TimeoutSeconds: 300}
+		return NewAdapter(ctx, root, cfg), selection, nil
+	}
+
+	// No provider available in auto mode
+	selection.PolicyDecision = "REQUIRE_APPROVAL"
+	selection.SelectionReason = "no executable harness is available on PATH"
+	return nil, selection, fmt.Errorf("no executable harness is available; install and configure codex or agy")
+}
+
 func normalizeProvider(provider string) string {
 	switch strings.ToLower(strings.TrimSpace(provider)) {
 	case "codex":

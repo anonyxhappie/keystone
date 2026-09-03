@@ -1,6 +1,6 @@
 # Keystone V2 implementation status
 
-This matrix is an audit of executable behavior on `main` for release `v2.1.1`. A capability is not marked implemented solely because a type or interface exists.
+This matrix is an audit of executable behavior on `main` for release `v2.1.2`. A capability is not marked implemented solely because a type or interface exists.
 
 | Capability | Implementation | Executable verification | Status |
 |---|---|---|---|
@@ -25,4 +25,4 @@ This matrix is an audit of executable behavior on `main` for release `v2.1.1`. A
 | Semantic architecture/requirement review | deterministic inputs exist; no model adapter | review input only; model judgment belongs behind capabilities | PARTIAL |
 | Cross-process pause of a live harness | durable control marker and polling observer | live local-process pause integration test; no daemon/PID registry required by local-first architecture | PARTIAL |
 
-The PARTIAL entries are explicit local-first boundaries, not broken capabilities. Keystone fails closed when external or remote authority is required. All core capabilities, real provider bridges (Antigravity and Codex), and release verification criteria are satisfied for release `v2.1.1`.
+The PARTIAL entries are explicit local-first boundaries, not broken capabilities. Keystone fails closed when external or remote authority is required. All core capabilities, real provider bridges (Antigravity and Codex), and release verification criteria are satisfied for release `v2.1.2`.

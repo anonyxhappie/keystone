@@ -10,22 +10,25 @@ import (
 )
 
 type ReplayReport struct {
-	RunID            string                  `json:"runId"`
-	WorkOrderID      string                  `json:"workOrderId,omitempty"`
-	Request          string                  `json:"request,omitempty"`
-	State            string                  `json:"state"`
-	HarnessID        string                  `json:"harnessId,omitempty"`
-	HarnessSessionID string                  `json:"harnessSessionId,omitempty"`
-	Machine          *runtime.Machine        `json:"machine"`
-	NextAction       *domain.NextAction      `json:"nextAction,omitempty"`
-	Findings         []domain.Finding        `json:"findings,omitempty"`
-	PolicyDecisions  []domain.PolicyDecision `json:"policyDecisions,omitempty"`
-	EvidenceIDs      []string                `json:"evidenceIds,omitempty"`
-	Decisions        []string                `json:"decisions,omitempty"`
-	Claims           []string                `json:"claims,omitempty"`
-	Observations     []domain.Observation    `json:"observations,omitempty"`
-	Gaps             []string                `json:"gaps,omitempty"`
-	Events           []observation.Event     `json:"events"`
+	RunID            string                   `json:"runId"`
+	WorkOrderID      string                   `json:"workOrderId,omitempty"`
+	Request          string                   `json:"request,omitempty"`
+	State            string                   `json:"state"`
+	HarnessID        string                   `json:"harnessId,omitempty"`
+	HarnessSessionID string                   `json:"harnessSessionId,omitempty"`
+	Machine          *runtime.Machine         `json:"machine"`
+	NextAction       *domain.NextAction       `json:"nextAction,omitempty"`
+	Findings         []domain.Finding         `json:"findings,omitempty"`
+	PolicyDecisions  []domain.PolicyDecision  `json:"policyDecisions,omitempty"`
+	EvidenceIDs      []string                 `json:"evidenceIds,omitempty"`
+	Decisions        []string                 `json:"decisions,omitempty"`
+	Claims           []string                 `json:"claims,omitempty"`
+	Observations     []domain.Observation     `json:"observations,omitempty"`
+	HarnessSelection *domain.HarnessSelection `json:"harnessSelection,omitempty"`
+	ReadOnly         bool                     `json:"readOnly,omitempty"`
+	Mutations        []domain.FileMutation    `json:"mutations,omitempty"`
+	Gaps             []string                 `json:"gaps,omitempty"`
+	Events           []observation.Event      `json:"events"`
 }
 
 func Replay(runID string, events []observation.Event) (ReplayReport, error) {
@@ -78,6 +81,30 @@ func Replay(runID string, events []observation.Event) (ReplayReport, error) {
 				var pd domain.PolicyDecision
 				if json.Unmarshal(b, &pd) == nil {
 					r.PolicyDecisions = append(r.PolicyDecisions, pd)
+				}
+			}
+		case "HARNESS_SELECTED":
+			b, err := json.Marshal(event.Payload)
+			if err == nil {
+				var hs domain.HarnessSelection
+				if json.Unmarshal(b, &hs) == nil {
+					r.HarnessSelection = &hs
+					if r.HarnessID == "" {
+						r.HarnessID = hs.SelectedHarness
+					}
+				}
+			}
+		case "MUTATIONS_DETECTED":
+			if ro, ok := event.Payload["readOnly"].(bool); ok {
+				r.ReadOnly = ro
+			}
+			if raw, ok := event.Payload["mutations"]; ok {
+				b, err := json.Marshal(raw)
+				if err == nil {
+					var muts []domain.FileMutation
+					if json.Unmarshal(b, &muts) == nil {
+						r.Mutations = muts
+					}
 				}
 			}
 		case "FINDINGS_RECORDED":

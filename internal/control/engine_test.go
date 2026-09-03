@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/anonyxhappie/keystone/internal/domain"
 	"github.com/anonyxhappie/keystone/internal/harness"
 	"github.com/anonyxhappie/keystone/internal/observation"
+	"github.com/anonyxhappie/keystone/internal/runtime"
 	"github.com/anonyxhappie/keystone/internal/state"
 )
 
@@ -31,6 +33,18 @@ func initRunnableFixture(t *testing.T, root string) state.Store {
 	s := state.New(root)
 	if _, err := s.Init("fixture", []domain.Capability{{Kind: "language", Name: "go"}, {Kind: "test", Name: "go"}}); err != nil {
 		t.Fatal(err)
+	}
+	cmds := [][]string{
+		{"init"},
+		{"config", "user.name", "Keystone Test"},
+		{"config", "user.email", "test@keystone.local"},
+		{"config", "commit.gpgsign", "false"},
+		{"add", "."},
+		{"commit", "-m", "initial commit"},
+	}
+	for _, args := range cmds {
+		cmd := exec.Command("git", append([]string{"-C", root}, args...)...)
+		_ = cmd.Run()
 	}
 	return s
 }
@@ -452,5 +466,208 @@ printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":4,"output_tokens
 	}
 	if checkpoint.HarnessSessionID != report.HarnessSessionID {
 		t.Fatalf("checkpoint lost provider session: %+v", checkpoint)
+	}
+}
+
+type fakeHarness struct {
+	id     string
+	result domain.Status
+}
+
+func (f *fakeHarness) Discover() error                         { return nil }
+func (f *fakeHarness) Capabilities() []string                  { return []string{"start"} }
+func (f *fakeHarness) HarnessID() string                       { return f.id }
+func (f *fakeHarness) Start(domain.WorkPacket) (string, error) { return "test-session", nil }
+func (f *fakeHarness) Send(string) error                       { return nil }
+func (f *fakeHarness) Observe() ([]domain.Observation, error)  { return nil, nil }
+func (f *fakeHarness) Interrupt() error                        { return nil }
+func (f *fakeHarness) Resume(domain.Checkpoint) error          { return nil }
+func (f *fakeHarness) Result() (domain.Status, error)          { return f.result, nil }
+
+func TestExplicitHarnessSelectionPersistedAndAuthoritative(t *testing.T) {
+	root := t.TempDir()
+	initRunnableFixture(t, root)
+	e, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := &fakeHarness{id: "codex", result: domain.StatusCompleted}
+	e.RequestedHarness = "codex"
+	report, err := e.Run(context.Background(), "do work with codex", adapter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if report.HarnessSelection == nil {
+		t.Fatalf("expected report.HarnessSelection to be populated")
+	}
+	if report.HarnessSelection.SelectedHarness != "codex" || report.HarnessSelection.SelectionMode != "explicit" {
+		t.Fatalf("unexpected harness selection: %+v", report.HarnessSelection)
+	}
+
+	var order domain.WorkOrder
+	if err := e.Store.Read("work/"+report.WorkOrderID+".json", &order); err != nil {
+		t.Fatal(err)
+	}
+	if order.HarnessSelection == nil || order.HarnessSelection.SelectedHarness != "codex" {
+		t.Fatalf("order lost harness selection: %+v", order)
+	}
+
+	snap, err := e.Store.LoadSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.HarnessSelection == nil || snap.HarnessSelection.SelectedHarness != "codex" {
+		t.Fatalf("snapshot lost harness selection: %+v", snap)
+	}
+}
+
+func TestExplicitUnavailableHarnessFailsClosedWithAskAndRequireApproval(t *testing.T) {
+	root := t.TempDir()
+	initRunnableFixture(t, root)
+	binDir := t.TempDir()
+	t.Setenv("PATH", binDir) // empty PATH
+
+	e, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	e.RequestedHarness = "codex"
+	report, _ := e.Run(context.Background(), "do work with codex", nil)
+	if report.State != runtime.Blocked {
+		t.Fatalf("expected state BLOCKED on unavailable explicit harness, got %s", report.State)
+	}
+	if report.NextAction.Type != "ASK" {
+		t.Fatalf("expected NextAction ASK, got %s", report.NextAction.Type)
+	}
+	if report.NextAction.PolicyDecision != "REQUIRE_APPROVAL" {
+		t.Fatalf("expected policy decision REQUIRE_APPROVAL, got %s", report.NextAction.PolicyDecision)
+	}
+	if !strings.Contains(report.Error, "unavailable") {
+		t.Fatalf("expected report error to mention unavailable, got: %q", report.Error)
+	}
+}
+
+func TestReadOnlyCleanRepoWithoutMutationsSucceeds(t *testing.T) {
+	root := t.TempDir()
+	initRunnableFixture(t, root)
+	e, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := &fakeHarness{id: "codex", result: domain.StatusCompleted}
+	report, err := e.Run(context.Background(), "Audit the repository. Do not modify any files.", adapter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !report.ReadOnly {
+		t.Fatalf("expected report.ReadOnly to be true")
+	}
+	if report.State != runtime.Complete {
+		t.Fatalf("expected Complete state for compliant read-only run, got %s", report.State)
+	}
+	if len(report.Mutations) != 0 {
+		t.Fatalf("expected 0 mutations, got: %+v", report.Mutations)
+	}
+}
+
+func TestReadOnlyDirtyRepoWithoutMutationsPreservesDirtyWork(t *testing.T) {
+	root := t.TempDir()
+	initRunnableFixture(t, root)
+	// Create pre-existing user dirty work
+	userDirtyPath := filepath.Join(root, "pre_existing_dirty.txt")
+	userDirtyContent := []byte("important uncommitted developer work")
+	_ = os.WriteFile(userDirtyPath, userDirtyContent, 0644)
+
+	e, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	adapter := &fakeHarness{id: "codex", result: domain.StatusCompleted}
+	report, err := e.Run(context.Background(), "Inspect the codebase. Do not make changes.", adapter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !report.ReadOnly {
+		t.Fatalf("expected report.ReadOnly to be true")
+	}
+	if report.State != runtime.Complete {
+		t.Fatalf("expected Complete state, got %s", report.State)
+	}
+
+	// Verify user dirty work was 100% preserved
+	currentBytes, err := os.ReadFile(userDirtyPath)
+	if err != nil || string(currentBytes) != string(userDirtyContent) {
+		t.Fatalf("pre-existing dirty work was corrupted or lost: %v, %q", err, string(currentBytes))
+	}
+}
+
+type mutatingHarness struct {
+	id     string
+	root   string
+	result domain.Status
+}
+
+func (m *mutatingHarness) Discover() error        { return nil }
+func (m *mutatingHarness) Capabilities() []string { return []string{"start"} }
+func (m *mutatingHarness) HarnessID() string      { return m.id }
+func (m *mutatingHarness) Start(p domain.WorkPacket) (string, error) {
+	_ = os.WriteFile(filepath.Join(m.root, "pre_existing_dirty.txt"), []byte("overwritten by rogue harness"), 0644)
+	_ = os.WriteFile(filepath.Join(m.root, "rogue_file.txt"), []byte("created by rogue harness"), 0644)
+	return "rogue session", nil
+}
+func (m *mutatingHarness) Send(string) error                      { return nil }
+func (m *mutatingHarness) Observe() ([]domain.Observation, error) { return nil, nil }
+func (m *mutatingHarness) Interrupt() error                       { return nil }
+func (m *mutatingHarness) Resume(domain.Checkpoint) error         { return nil }
+func (m *mutatingHarness) Result() (domain.Status, error)         { return m.result, nil }
+
+func TestReadOnlyViolationDetectsMutationsRevertsSafelyAndDeniesCompletion(t *testing.T) {
+	root := t.TempDir()
+	initRunnableFixture(t, root)
+	userDirtyPath := filepath.Join(root, "pre_existing_dirty.txt")
+	userDirtyContent := []byte("important uncommitted developer work")
+	_ = os.WriteFile(userDirtyPath, userDirtyContent, 0644)
+
+	e, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rogue := &mutatingHarness{id: "rogue-agent", root: root, result: domain.StatusCompleted}
+	report, err := e.Run(context.Background(), "Audit repository. Do not make changes.", rogue)
+	if err != nil {
+		t.Fatalf("unexpected run error: %v", err)
+	}
+
+	// Completion must be strictly denied
+	if report.State == runtime.Complete {
+		t.Fatalf("read-only violation was falsely marked complete!")
+	}
+	if report.State != runtime.Stopped {
+		t.Fatalf("expected state STOPPED, got %s", report.State)
+	}
+	if !strings.Contains(report.Error, "read-only policy violated") {
+		t.Fatalf("expected error mentioning read-only policy violation, got: %q", report.Error)
+	}
+
+	// Mutations must be detected and recorded
+	if len(report.Mutations) != 2 {
+		t.Fatalf("expected 2 mutations detected, got %d: %+v", len(report.Mutations), report.Mutations)
+	}
+
+	// Post-restoration:
+	// 1. Rogue file must be removed
+	if _, err := os.Stat(filepath.Join(root, "rogue_file.txt")); !os.IsNotExist(err) {
+		t.Fatalf("rogue_file.txt was not deleted")
+	}
+
+	// 2. Pre-existing dirty file must have original developer content (NOT rogue content!)
+	dirtyBytes, err := os.ReadFile(userDirtyPath)
+	if err != nil || string(dirtyBytes) != string(userDirtyContent) {
+		t.Fatalf("pre-existing dirty file was not restored to original content: %v, %q", err, string(dirtyBytes))
 	}
 }

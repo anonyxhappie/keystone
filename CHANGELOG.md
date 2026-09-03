@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.2
+
+Authoritative harness execution, fail-closed provider availability, and non-destructive read-only mutation rollback:
+- Authoritative Harness Selection: Added explicit CLI harness control via `--harness <codex|antigravity|auto>`, ensuring Keystone never silently substitutes another harness when one was explicitly requested.
+- Fail-Closed Provider Availability: Probing and fail-closed blocking (`ASK` with `REQUIRE_APPROVAL`) if an explicitly requested harness is unavailable, detailing available alternatives without silent fallback.
+- Read-Only Constraint Enforcement: Semantic detection of read-only requests ("do not modify any files", "audit only", etc.) enforced as an actual execution boundary rather than mere prompt text.
+- Non-Destructive Git Baseline Engine: Pre-run byte-level baseline capture preserving pre-existing uncommitted developer files; rogue harness mutations and created files are safely rolled back without blanket destructive `git reset --hard`.
+- Read-Only Completion Denial: If mutations occur during read-only runs, mutations are reverted, critical `MUTATION_VIOLATION` findings are recorded, and completion is denied (`State: STOPPED`).
+
 ## 2.1.1
 
 Intelligent context budget handling, deterministic progressive re-planning, and timestamp safety:

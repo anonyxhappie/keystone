@@ -41,32 +41,36 @@ func DefaultLimits() Limits {
 }
 
 type Engine struct {
-	Root           string
-	Store          state.Store
-	Journal        *observation.Journal
-	Limits         Limits
-	AdapterFactory func() harness.Adapter
-	resume         *resumeInput
+	Root             string
+	Store            state.Store
+	Journal          *observation.Journal
+	Limits           Limits
+	AdapterFactory   func() harness.Adapter
+	RequestedHarness string
+	resume           *resumeInput
 }
 type resumeInput struct {
 	Order    domain.WorkOrder
 	Snapshot state.Snapshot
 }
 type Report struct {
-	RunID            string              `json:"runId"`
-	WorkOrderID      string              `json:"workOrderId"`
-	HarnessID        string              `json:"harnessId,omitempty"`
-	HarnessSessionID string              `json:"harnessSessionId,omitempty"`
-	State            runtime.State       `json:"state"`
-	NextAction       domain.NextAction   `json:"nextAction"`
-	Findings         []domain.Finding    `json:"findings,omitempty"`
-	EvidenceIDs      []string            `json:"evidenceIds,omitempty"`
-	ChangedFiles     []string            `json:"changedFiles,omitempty"`
-	ContextManifest  string              `json:"contextManifest,omitempty"`
-	ContextTokens    int                 `json:"contextTokens,omitempty"`
-	Validations      []validation.Result `json:"validations,omitempty"`
-	Attempts         int                 `json:"attempts"`
-	Error            string              `json:"error,omitempty"`
+	RunID            string                   `json:"runId"`
+	WorkOrderID      string                   `json:"workOrderId"`
+	HarnessID        string                   `json:"harnessId,omitempty"`
+	HarnessSessionID string                   `json:"harnessSessionId,omitempty"`
+	HarnessSelection *domain.HarnessSelection `json:"harnessSelection,omitempty"`
+	ReadOnly         bool                     `json:"readOnly,omitempty"`
+	Mutations        []domain.FileMutation    `json:"mutations,omitempty"`
+	State            runtime.State            `json:"state"`
+	NextAction       domain.NextAction        `json:"nextAction"`
+	Findings         []domain.Finding         `json:"findings,omitempty"`
+	EvidenceIDs      []string                 `json:"evidenceIds,omitempty"`
+	ChangedFiles     []string                 `json:"changedFiles,omitempty"`
+	ContextManifest  string                   `json:"contextManifest,omitempty"`
+	ContextTokens    int                      `json:"contextTokens,omitempty"`
+	Validations      []validation.Result      `json:"validations,omitempty"`
+	Attempts         int                      `json:"attempts"`
+	Error            string                   `json:"error,omitempty"`
 }
 
 var ErrPaused = errors.New("run paused by explicit control request")
@@ -103,6 +107,7 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 	var m *runtime.Machine
 	var report Report
 	var resumeCheckpoint domain.Checkpoint
+	var baselineSnapshot git.BaselineSnapshot
 	if resuming {
 		order = e.resume.Order
 		if len(order.Requirements) > 0 {
@@ -205,14 +210,24 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			return Report{}, err
 		}
 		m = runtime.New()
-		report = Report{RunID: runID, WorkOrderID: order.ID, State: m.State}
+		report = Report{RunID: runID, WorkOrderID: order.ID, State: m.State, ReadOnly: order.ReadOnly}
 		if err := e.event(runID, "REQUEST_ACCEPTED", map[string]any{"request": order.SourceRequest, "workOrderId": order.ID, "requirementId": req.ID}); err != nil {
 			return report, err
 		}
 		baseline := git.Inspect(ctx, e.Root)
+		backupDir := filepath.Join(e.Root, ".keystone", "baselines", runID)
+		baselineSnapshot, _ = git.CaptureBaseline(ctx, e.Root, backupDir)
 		if err := e.event(runID, "GIT_BASELINE", map[string]any{"available": baseline.Available, "dirty": baseline.Dirty, "head": baseline.Head, "diffDigest": baseline.DiffDigest, "changedFiles": baseline.ChangedFiles, "error": baseline.Error}); err != nil {
 			return report, err
 		}
+		_ = e.event(runID, "GIT_BASELINE_DETAILED", map[string]any{
+			"available":   baselineSnapshot.Available,
+			"dirty":       baselineSnapshot.Dirty,
+			"head":        baselineSnapshot.Head,
+			"diffDigest":  baselineSnapshot.DiffDigest,
+			"preRunFiles": len(baselineSnapshot.PreRunFiles),
+			"backupDir":   backupDir,
+		})
 		if err := e.persist(m, report, nil); err != nil {
 			return report, err
 		}
@@ -293,9 +308,43 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			}
 		}
 		if current == nil {
-			if cfg, err := harness.LoadConfig(e.Root); err == nil {
-				current = harness.NewAdapter(ctx, e.Root, cfg)
+			selectedAdapter, selection, selectErr := harness.SelectHarness(ctx, e.Root, e.RequestedHarness)
+			order.HarnessSelection = &selection
+			report.HarnessSelection = &selection
+			order.UpdatedAt = time.Now().UTC()
+			_ = e.Store.Write("work/"+order.ID+".json", order)
+			_ = e.event(runID, "HARNESS_SELECTED", map[string]any{
+				"requestedHarness":   selection.RequestedHarness,
+				"selectionMode":      selection.SelectionMode,
+				"selectedHarness":    selection.SelectedHarness,
+				"selectionReason":    selection.SelectionReason,
+				"availableHarnesses": selection.AvailableHarnesses,
+				"policyDecision":     selection.PolicyDecision,
+			})
+			if selectErr != nil || selection.PolicyDecision == "REQUIRE_APPROVAL" {
+				decision := policy.EvaluateHarnessSelection(selection.RequestedHarness, false, selection.SelectionReason)
+				_ = e.event(runID, "POLICY_DECISION", map[string]any{
+					"action":           "harness_selection",
+					"decision":         decision.Decision,
+					"allowed":          decision.Allowed,
+					"requiresApproval": decision.RequiresApproval,
+					"reason":           decision.Reason,
+				})
+				return e.block(ctx, m, report, selectErr)
 			}
+			current = selectedAdapter
+		} else if identified, ok := current.(harness.HarnessIdentity); ok && order.HarnessSelection == nil {
+			selection := domain.HarnessSelection{
+				RequestedHarness:   identified.HarnessID(),
+				SelectionMode:      "explicit",
+				SelectedHarness:    identified.HarnessID(),
+				SelectionReason:    "explicit adapter fixture provided",
+				AvailableHarnesses: []string{identified.HarnessID()},
+				PolicyDecision:     "ALLOW",
+			}
+			order.HarnessSelection = &selection
+			report.HarnessSelection = &selection
+			_ = e.Store.Write("work/"+order.ID+".json", order)
 		}
 		if current == nil {
 			return e.block(ctx, m, report, errors.New("no executable harness is configured"))
@@ -458,6 +507,85 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			changed = gitState.ChangedFiles
 		}
 		report.ChangedFiles = changed
+
+		mutations, mutationErr := git.DetectMutations(ctx, e.Root, baselineSnapshot)
+		if mutationErr == nil {
+			report.Mutations = mutations
+			if len(mutations) > 0 {
+				_ = e.event(runID, "MUTATIONS_DETECTED", map[string]any{
+					"count":     len(mutations),
+					"mutations": mutations,
+					"readOnly":  order.ReadOnly,
+				})
+			}
+		}
+
+		if order.ReadOnly {
+			report.ReadOnly = true
+			if len(mutations) > 0 {
+				roEvidence, _ := evidence.RecordScoped(e.Store, order.ID, "read-only-violation", fmt.Sprintf("read-only policy violated: %d forbidden repository mutations detected", len(mutations)), gitState.Head, gitState.DiffDigest, observationIDs, false)
+				if roEvidence.ID != "" {
+					allEvidence = append(allEvidence, roEvidence.ID)
+					_ = e.event(runID, "EVIDENCE_RECORDED", map[string]any{"evidenceId": roEvidence.ID, "type": roEvidence.Type, "status": roEvidence.Verification})
+				}
+
+				roDecision := policy.EvaluateReadOnly(mutations)
+				_ = e.event(runID, "POLICY_DECISION", map[string]any{
+					"action":           "read_only_violation",
+					"decision":         roDecision.Decision,
+					"allowed":          roDecision.Allowed,
+					"requiresApproval": roDecision.RequiresApproval,
+					"reason":           roDecision.Reason,
+				})
+
+				lastFindings = append(lastFindings, domain.Finding{
+					Type:              "MUTATION_VIOLATION",
+					Severity:          "critical",
+					Explanation:       fmt.Sprintf("forbidden repository mutations detected during read-only execution: %d files mutated", len(mutations)),
+					RecommendedAction: "revert forbidden changes and enforce read-only constraint",
+					Confidence:        1.0,
+				})
+
+				restoredCount, restoreErr := git.RestoreMutations(ctx, e.Root, baselineSnapshot, mutations)
+				report.Mutations = mutations
+				_ = e.event(runID, "MUTATIONS_RESTORED", map[string]any{
+					"attempted": len(mutations),
+					"restored":  restoredCount,
+					"error":     restoreErr,
+				})
+
+				if restoreErr != nil {
+					return e.block(ctx, m, report, fmt.Errorf("read-only violation: failed to restore all mutations safely: %v", restoreErr))
+				}
+
+				if err := e.decide(m, runtime.StopDecision, fmt.Sprintf("read-only policy violated: %d mutations detected and safely reverted", len(mutations)), &report); err != nil {
+					return e.block(ctx, m, report, err)
+				}
+				report.State = m.State
+				report.NextAction = m.NextAction(order.Risk.Level, false, "read-only policy violated: mutations safely reverted")
+				report.Error = fmt.Sprintf("read-only policy violated: %d mutations were detected and reverted to pre-run baseline; completion is denied", len(mutations))
+				order.Status = domain.StatusFailed
+				order.UpdatedAt = time.Now().UTC()
+				_ = e.Store.Write("work/"+order.ID+".json", order)
+				_ = e.checkpoint(m, report, changed, lastFindings)
+				return report, nil
+			}
+
+			roEvidence, _ := evidence.RecordScoped(e.Store, order.ID, "read-only-compliance", "verified zero repository mutations occurred during read-only execution", gitState.Head, gitState.DiffDigest, observationIDs, true)
+			if roEvidence.ID != "" {
+				allEvidence = append(allEvidence, roEvidence.ID)
+				_ = e.event(runID, "EVIDENCE_RECORDED", map[string]any{"evidenceId": roEvidence.ID, "type": roEvidence.Type, "status": roEvidence.Verification})
+			}
+			roDecision := policy.EvaluateReadOnly(nil)
+			_ = e.event(runID, "POLICY_DECISION", map[string]any{
+				"action":           "read_only_compliance",
+				"decision":         roDecision.Decision,
+				"allowed":          roDecision.Allowed,
+				"requiresApproval": roDecision.RequiresApproval,
+				"reason":           roDecision.Reason,
+			})
+		}
+
 		harnessEvidence, err := evidence.RecordScoped(e.Store, order.ID, "harness-result", "harness process result", gitState.Head, gitState.DiffDigest, observationIDs, status == domain.StatusCompleted)
 		if err != nil {
 			return e.block(ctx, m, report, err)
@@ -605,7 +733,8 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			}
 			return report, nil
 		}
-		if validationPassed && len(highFindings(findings)) == 0 {
+		readOnlyCompliant := !order.ReadOnly || len(report.Mutations) == 0
+		if validationPassed && len(highFindings(findings)) == 0 && readOnlyCompliant {
 			completionPolicy := policy.Evaluate("complete")
 			if err := e.event(runID, "POLICY_DECISION", map[string]any{"action": "complete", "decision": completionPolicy.Decision, "allowed": completionPolicy.Allowed, "requiresApproval": completionPolicy.RequiresApproval, "reason": completionPolicy.Reason}); err != nil {
 				return e.block(ctx, m, report, err)
@@ -723,7 +852,25 @@ func (e *Engine) event(runID, typ string, payload map[string]any) error {
 	return e.Journal.Append(observation.Event{RunID: runID, Type: typ, Source: "keystone-control", OperationID: fmt.Sprintf("%s:%s:%d", runID, typ, time.Now().UnixNano()), Payload: payload})
 }
 func (e *Engine) persist(m *runtime.Machine, report Report, checkpointID *string) error {
-	snap := state.Snapshot{SchemaVersion: "2", Lifecycle: string(m.State), RunID: report.RunID, WorkOrderID: report.WorkOrderID, HarnessID: report.HarnessID, HarnessSessionID: report.HarnessSessionID, Machine: m, NextAction: &report.NextAction, Findings: report.Findings, EvidenceIDs: report.EvidenceIDs, ChangedFiles: report.ChangedFiles, ContextManifest: report.ContextManifest, UpdatedAt: time.Now().UTC(), LastError: report.Error}
+	snap := state.Snapshot{
+		SchemaVersion:    "2",
+		Lifecycle:        string(m.State),
+		RunID:            report.RunID,
+		WorkOrderID:      report.WorkOrderID,
+		HarnessID:        report.HarnessID,
+		HarnessSessionID: report.HarnessSessionID,
+		HarnessSelection: report.HarnessSelection,
+		ReadOnly:         report.ReadOnly,
+		Mutations:        report.Mutations,
+		Machine:          m,
+		NextAction:       &report.NextAction,
+		Findings:         report.Findings,
+		EvidenceIDs:      report.EvidenceIDs,
+		ChangedFiles:     report.ChangedFiles,
+		ContextManifest:  report.ContextManifest,
+		UpdatedAt:        time.Now().UTC(),
+		LastError:        report.Error,
+	}
 	if checkpointID != nil {
 		snap.CheckpointID = *checkpointID
 	}

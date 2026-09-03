@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/anonyxhappie/keystone/internal/domain"
 	"github.com/anonyxhappie/keystone/internal/harness"
 	"github.com/anonyxhappie/keystone/internal/runtime"
 	"github.com/anonyxhappie/keystone/internal/state"
@@ -91,9 +92,9 @@ func TestCLIAuditAll13Commands(t *testing.T) {
 		t.Fatalf("validate output unexpected: %q", out)
 	}
 
-	// 6. keystone run
+	// 6. keystone run (with --json for programmatic output)
 	out = captureOutput(func() {
-		runRun(root, []string{"add", "feature", "safely"})
+		runRun(root, []string{"--json", "add", "feature", "safely"})
 	})
 	if !strings.Contains(out, "\"state\": \"COMPLETE\"") {
 		t.Fatalf("run did not complete: %q", out)
@@ -194,24 +195,28 @@ func TestParseRunArgs(t *testing.T) {
 	cases := []struct {
 		args        []string
 		wantHarness string
+		wantJSON    bool
 		wantReq     string
 		wantErr     bool
 	}{
 		{
 			args:        []string{"--harness", "codex", "inspect", "the", "codebase"},
 			wantHarness: "codex",
+			wantJSON:    false,
 			wantReq:     "inspect the codebase",
 			wantErr:     false,
 		},
 		{
-			args:        []string{"--harness", "antigravity", "inspect", "the", "codebase"},
+			args:        []string{"--harness", "antigravity", "--json", "inspect", "the", "codebase"},
 			wantHarness: "antigravity",
+			wantJSON:    true,
 			wantReq:     "inspect the codebase",
 			wantErr:     false,
 		},
 		{
 			args:        []string{"--harness=auto", "audit", "only"},
 			wantHarness: "auto",
+			wantJSON:    false,
 			wantReq:     "audit only",
 			wantErr:     false,
 		},
@@ -222,13 +227,14 @@ func TestParseRunArgs(t *testing.T) {
 		{
 			args:        []string{"plain", "request", "without", "flag"},
 			wantHarness: "",
+			wantJSON:    false,
 			wantReq:     "plain request without flag",
 			wantErr:     false,
 		},
 	}
 
 	for _, c := range cases {
-		h, r, err := parseRunArgs(c.args)
+		h, jm, r, err := parseRunArgs(c.args)
 		if c.wantErr {
 			if err == nil {
 				t.Fatalf("expected error for args: %v, got h=%q, r=%q", c.args, h, r)
@@ -241,8 +247,41 @@ func TestParseRunArgs(t *testing.T) {
 		if h != c.wantHarness {
 			t.Fatalf("args %v: want harness %q, got %q", c.args, c.wantHarness, h)
 		}
+		if jm != c.wantJSON {
+			t.Fatalf("args %v: want json %v, got %v", c.args, c.wantJSON, jm)
+		}
 		if r != c.wantReq {
 			t.Fatalf("args %v: want req %q, got %q", c.args, c.wantReq, r)
 		}
+	}
+}
+
+func TestCLIRichTerminalOutput(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"go.mod":     "module testrun\n\ngo 1.23\n",
+		"main.go":    "package main\n\nfunc main() {}\n",
+		"main_test.go": "package main\n\nimport \"testing\"\n\nfunc TestMain(t *testing.T) {}\n",
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s := state.New(root)
+	if _, err := s.Init("test-project", []domain.Capability{{Kind: "language", Name: "go"}, {Kind: "test", Name: "go"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	harnessCfg := harness.Config{Name: "test-harness", Command: "sh", Args: []string{"-c", "read line; echo done"}, TimeoutSeconds: 10}
+	cfgBytes, _ := json.Marshal(harnessCfg)
+	_ = os.WriteFile(filepath.Join(root, state.Dir, "harness.json"), cfgBytes, 0600)
+
+	out := captureOutput(func() {
+		runRun(root, []string{"inspect", "the", "repository"})
+	})
+
+	if !strings.Contains(out, "RUN COMPLETE") || !strings.Contains(out, "Keystone") {
+		t.Fatalf("expected rich terminal UI, got: %q", out)
 	}
 }

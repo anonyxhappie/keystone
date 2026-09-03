@@ -20,6 +20,7 @@ import (
 	"github.com/anonyxhappie/keystone/internal/project"
 	"github.com/anonyxhappie/keystone/internal/runtime"
 	"github.com/anonyxhappie/keystone/internal/state"
+	"github.com/anonyxhappie/keystone/internal/ui"
 	"github.com/anonyxhappie/keystone/internal/validation"
 	"github.com/anonyxhappie/keystone/internal/work"
 )
@@ -131,13 +132,17 @@ func runAsk(root string, args []string) {
 	printJSON(packet)
 }
 
-func parseRunArgs(args []string) (harnessName string, request string, err error) {
+func parseRunArgs(args []string) (harnessName string, jsonMode bool, request string, err error) {
 	words := []string{}
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
+		if arg == "--json" || arg == "-json" {
+			jsonMode = true
+			continue
+		}
 		if arg == "--harness" || arg == "-harness" {
 			if i+1 >= len(args) {
-				return "", "", fmt.Errorf("--harness requires an argument (e.g. codex, antigravity, auto)")
+				return "", false, "", fmt.Errorf("--harness requires an argument (e.g. codex, antigravity, auto)")
 			}
 			harnessName = args[i+1]
 			i++
@@ -157,17 +162,17 @@ func parseRunArgs(args []string) (harnessName string, request string, err error)
 	if harnessName != "" {
 		norm := strings.ToLower(strings.TrimSpace(harnessName))
 		if norm != "codex" && norm != "antigravity" && norm != "agy" && norm != "auto" {
-			return "", "", fmt.Errorf("invalid harness %q; valid options are: codex, antigravity, auto", harnessName)
+			return "", false, "", fmt.Errorf("invalid harness %q; valid options are: codex, antigravity, auto", harnessName)
 		}
 		harnessName = norm
 	}
 
 	request = strings.TrimSpace(strings.Join(words, " "))
-	return harnessName, request, nil
+	return harnessName, jsonMode, request, nil
 }
 
 func runRun(root string, args []string) {
-	harnessFlag, request, err := parseRunArgs(args)
+	harnessFlag, jsonMode, request, err := parseRunArgs(args)
 	if err != nil {
 		fatal(err)
 	}
@@ -179,12 +184,69 @@ func runRun(root string, args []string) {
 		fatal(err)
 	}
 	e.RequestedHarness = harnessFlag
-	e.AdapterFactory = localFactory(root)
-	report, err := e.Run(context.Background(), request, nil)
-	if err != nil {
-		fatal(err)
+	e.AdapterFactory = localFactory(root, harnessFlag)
+
+	var term *ui.Terminal
+	if !jsonMode {
+		term = ui.New(os.Stdout)
+		term.Header(root, harnessFlag, work.IsReadOnlyRequest(request), request)
+		e.OnEvent = term.OnEvent
+		e.OnObservation = term.OnObservation
 	}
-	printJSON(report)
+
+	report, runErr := e.Run(context.Background(), request, nil)
+
+	if jsonMode {
+		if runErr != nil {
+			fatal(runErr)
+		}
+		printJSON(report)
+		return
+	}
+
+	summaries := []ui.ValidationSummary{}
+	for _, v := range report.Validations {
+		summary := ""
+		if !v.Passed {
+			if strings.Contains(v.Stderr, "Can't reach database server") || strings.Contains(v.Stdout, "Can't reach database server") {
+				summary = "Environment blocker: PostgreSQL not reachable at localhost:5432"
+			} else if strings.Contains(v.Stdout, "new blank line at EOF") {
+				summary = "Git style: trailing blank line at EOF"
+			} else if v.Stderr != "" {
+				summary = strings.Split(strings.TrimSpace(v.Stderr), "\n")[0]
+			} else {
+				summary = fmt.Sprintf("exit code %d", v.ExitCode)
+			}
+		}
+		summaries = append(summaries, ui.ValidationSummary{
+			Name:    v.Name,
+			Passed:  v.Passed,
+			Summary: summary,
+		})
+	}
+
+	term.Report(
+		report.RunID,
+		report.WorkOrderID,
+		report.HarnessID,
+		report.HarnessSessionID,
+		string(report.State),
+		string(report.NextAction.Type),
+		report.NextAction.Reason,
+		report.ReadOnly,
+		len(report.Mutations),
+		report.ContextTokens,
+		report.Attempts,
+		report.Error,
+		summaries,
+	)
+
+	if report.NextAction.Type == "ASK" || report.NextAction.RequiresApproval {
+		if term.PromptApproval(report.NextAction.Reason) {
+			runApprove(root, []string{"CONTINUE"})
+			runContinue(root)
+		}
+	}
 }
 
 func runContinue(root string) {
@@ -370,8 +432,18 @@ func runDoctor(root string) {
 	printJSON(map[string]any{"version": version, "harnesses": harness.Discover(root), "git": git.Inspect(context.Background(), root)})
 }
 
-func localFactory(root string) func() harness.Adapter {
+func localFactory(root string, requested ...string) func() harness.Adapter {
+	req := ""
+	if len(requested) > 0 {
+		req = requested[0]
+	}
 	return func() harness.Adapter {
+		if req != "" && req != "auto" {
+			adapter, _, err := harness.SelectHarness(context.Background(), root, req)
+			if err == nil && adapter != nil {
+				return adapter
+			}
+		}
 		cfg, err := harness.LoadConfig(root)
 		if err != nil {
 			return nil

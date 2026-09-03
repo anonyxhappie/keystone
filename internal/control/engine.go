@@ -47,6 +47,8 @@ type Engine struct {
 	Limits           Limits
 	AdapterFactory   func() harness.Adapter
 	RequestedHarness string
+	OnEvent          func(observation.Event)
+	OnObservation    func(domain.Observation)
 	resume           *resumeInput
 }
 type resumeInput struct {
@@ -430,6 +432,10 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 		observations, observeErr := collect(ctx, current, e.Limits.MaxObservations, func() bool {
 			_, err := os.Stat(filepath.Join(e.Root, state.Dir, "control", "pause.json"))
 			return err == nil
+		}, func(o domain.Observation) {
+			if e.OnObservation != nil {
+				e.OnObservation(o)
+			}
 		})
 		if errors.Is(observeErr, ErrPaused) {
 			_ = current.Interrupt()
@@ -777,10 +783,13 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 			if identified, ok := current.(harness.HarnessIdentity); ok {
 				previousHarness = identified.HarnessID()
 			}
-			if e.AdapterFactory != nil {
-				if stopper, ok := current.(harness.Stopper); ok {
-					_ = stopper.Stop()
-				}
+			if stopper, ok := current.(harness.Stopper); ok {
+				_ = stopper.Stop()
+			}
+			if e.RequestedHarness != "" && e.RequestedHarness != "auto" {
+				selectedAdapter, _, _ := harness.SelectHarness(ctx, e.Root, e.RequestedHarness)
+				current = selectedAdapter
+			} else if e.AdapterFactory != nil {
 				current = e.AdapterFactory()
 			} else {
 				current = nil
@@ -849,7 +858,11 @@ func (e *Engine) decide(m *runtime.Machine, d runtime.Decision, reason string, r
 	return e.persist(m, *report, nil)
 }
 func (e *Engine) event(runID, typ string, payload map[string]any) error {
-	return e.Journal.Append(observation.Event{RunID: runID, Type: typ, Source: "keystone-control", OperationID: fmt.Sprintf("%s:%s:%d", runID, typ, time.Now().UnixNano()), Payload: payload})
+	ev := observation.Event{RunID: runID, Type: typ, Source: "keystone-control", OperationID: fmt.Sprintf("%s:%s:%d", runID, typ, time.Now().UnixNano()), Payload: payload}
+	if e.OnEvent != nil {
+		e.OnEvent(ev)
+	}
+	return e.Journal.Append(ev)
 }
 func (e *Engine) persist(m *runtime.Machine, report Report, checkpointID *string) error {
 	snap := state.Snapshot{
@@ -971,7 +984,7 @@ func (e *Engine) Continue(ctx stdcontext.Context, adapter harness.Adapter) (Repo
 	defer func() { e.resume = nil }()
 	return e.Run(ctx, order.SourceRequest, adapter)
 }
-func collect(ctx stdcontext.Context, a harness.Adapter, max int, paused func() bool) ([]domain.Observation, error) {
+func collect(ctx stdcontext.Context, a harness.Adapter, max int, paused func() bool, onObs func(domain.Observation)) ([]domain.Observation, error) {
 	out := []domain.Observation{}
 	for i := 0; i < max; i++ {
 		if paused != nil && paused() {
@@ -998,6 +1011,11 @@ func collect(ctx stdcontext.Context, a harness.Adapter, max int, paused func() b
 				}
 				if len(r.items) == 0 {
 					return out, nil
+				}
+				for _, item := range r.items {
+					if onObs != nil {
+						onObs(item)
+					}
 				}
 				out = append(out, r.items...)
 				break waitLoop

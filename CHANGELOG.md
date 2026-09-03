@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased (latest)
+
+Rich streaming terminal UI, interactive user prompts, and retry harness preservation:
+- Rich Terminal UI: Built `internal/ui` renderer displaying styled Keystone project banners, ANSI-colored lifecycle transitions, elapsed timestamps, and beautifully formatted executive report cards with clear status pills (`RUN COMPLETE`, `RUN STOPPED`, `RUN BLOCKED`).
+- Live Real-Time Streaming: Engine streams lifecycle events and harness observations (tool calls, commands, file touches, and completion claims) live to stdout as they occur, eliminating monolithic silent pauses.
+- Concise Failure Diagnostics: Validations cleanly extract and format actionable root-cause blockers (e.g. unreachable local services, git style issues) without dumping unformatted stack traces.
+- Interactive Approval & Prompts: Interactive CLI prompt when an action requires approval (`ASK` / `REQUIRE_APPROVAL`), allowing the user to approve continuation directly in the terminal (`[y/N]`).
+- Programmatic Output (`--json`): Added `--json` flag to `keystone run` for machine-readable automation, CI pipelines, and tooling.
+- Retry Harness Preservation: Ensured authoritative harness choice is preserved across bounded retry attempts, preventing silent harness substitution on retry loops.
+
 ## 2.1.3
 
 Robust provider probe timeout:

@@ -13,6 +13,7 @@ import (
 
 	"github.com/anonyxhappie/keystone/internal/domain"
 	"github.com/anonyxhappie/keystone/internal/harness"
+	"github.com/anonyxhappie/keystone/internal/learning"
 	"github.com/anonyxhappie/keystone/internal/observation"
 	"github.com/anonyxhappie/keystone/internal/runtime"
 	"github.com/anonyxhappie/keystone/internal/state"
@@ -669,5 +670,48 @@ func TestReadOnlyViolationDetectsMutationsRevertsSafelyAndDeniesCompletion(t *te
 	dirtyBytes, err := os.ReadFile(userDirtyPath)
 	if err != nil || string(dirtyBytes) != string(userDirtyContent) {
 		t.Fatalf("pre-existing dirty file was not restored to original content: %v, %q", err, string(dirtyBytes))
+	}
+}
+
+func TestDirectiveLearningCapture(t *testing.T) {
+	root := t.TempDir()
+	initRunnableFixture(t, root)
+	e, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	fakeLearnScript := filepath.Join(root, "fake-learn.sh")
+	scriptContent := `#!/bin/sh
+if [ "$1" = "--version" ]; then printf 'codex-fixture 1.0\n'; exit 0; fi
+printf '%s\n' '{"type":"thread.started","thread_id":"thread-learn-1"}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"Reflected on recent changes: cache must be invalidated after migration"}}'
+printf '%s\n' '{"type":"item.completed","item":{"type":"completion_claim","summary":"Always invalidate cache after migration"}}'
+printf '%s\n' '{"type":"turn.completed","usage":{"input_tokens":4,"output_tokens":3}}'
+`
+	if err := os.WriteFile(fakeLearnScript, []byte(scriptContent), 0700); err != nil {
+		t.Fatal(err)
+	}
+
+	config, err := json.Marshal(harness.Config{Provider: "codex", Name: "codex", Command: fakeLearnScript, TimeoutSeconds: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".keystone", "harness.json"), config, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	report, runErr := e.Run(context.Background(), "/learn", nil)
+	if runErr != nil {
+		t.Fatalf("unexpected run error: %v", runErr)
+	}
+	t.Logf("report: state=%s, error=%q, attempts=%d", report.State, report.Error, report.Attempts)
+
+	activeLearnings := learning.Active(e.Store, "project")
+	if len(activeLearnings) == 0 {
+		t.Fatalf("expected /learn to persist active learning to .keystone/learning/, got 0")
+	}
+	if !strings.Contains(activeLearnings[0].Observation, "Always invalidate cache after migration") {
+		t.Fatalf("unexpected learning observation: %q", activeLearnings[0].Observation)
 	}
 }

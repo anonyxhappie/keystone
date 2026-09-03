@@ -24,6 +24,7 @@ type Config struct {
 	Capabilities   []string `json:"capabilities,omitempty"`
 	TimeoutSeconds int      `json:"timeoutSeconds,omitempty"`
 	Model          string   `json:"model,omitempty"`
+	Directive      string   `json:"directive,omitempty"`
 }
 
 func LoadConfig(root string) (Config, error) {
@@ -284,9 +285,11 @@ func providerCapabilities(provider string) (capabilities, control, observability
 	limitations = []string{"provider CLI execution is one-shot per turn; in-turn Send is unavailable and follow-up uses provider session resume"}
 	switch normalizeProvider(provider) {
 	case "codex":
-		return base, control, observability, evidence, limitations
+		codexCaps := append(base, CapGoalMode, CapBrowser, CapSideQuestion)
+		return codexCaps, control, observability, evidence, limitations
 	case "antigravity":
-		return base, control, observability, evidence, limitations
+		agyCaps := append(base, CapGoalMode, CapBoost, CapTeamwork, CapBrowser, CapLearning, CapSchedule, CapInterview, CapSideQuestion)
+		return agyCaps, control, observability, evidence, limitations
 	default:
 		return []string{"start", "send", "observe", "interrupt", "resume", "result", "stdout-observation"}, []string{"start", "send", "resume", "interrupt"}, []string{"stdout"}, []string{"stdout-observation"}, nil
 	}

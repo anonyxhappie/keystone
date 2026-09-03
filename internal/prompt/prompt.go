@@ -144,6 +144,7 @@ func Generate(
 		Hypothesis:       hypothesis,
 		ExpectedInfoGain: expectedInfoGain,
 		Content:          sb.String(),
+		Directive:        order.Directive,
 		Dispatched:       false,
 		CreatedAt:        now,
 	}

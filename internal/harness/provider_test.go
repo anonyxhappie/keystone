@@ -209,3 +209,42 @@ func hasValue(values []string, want string) bool {
 	}
 	return false
 }
+
+func TestCLIAdapterDirectiveFormatting(t *testing.T) {
+	root := t.TempDir()
+
+	// 1. Antigravity goal directive
+	agy := NewAntigravityAdapter(context.Background(), root, Config{Directive: "goal"})
+	agyArgs := agy.args("implement feature X", "")
+	if !hasValue(agyArgs, "/goal implement feature X") {
+		t.Fatalf("expected Antigravity to format prompt with /goal prefix, got: %v", agyArgs)
+	}
+
+	// 2. Antigravity boost directive
+	agyBoost := NewAntigravityAdapter(context.Background(), root, Config{Directive: "boost"})
+	boostArgs := agyBoost.args("analyze architecture", "")
+	if !hasValue(boostArgs, "/boost analyze architecture") {
+		t.Fatalf("expected Antigravity to format prompt with /boost prefix, got: %v", boostArgs)
+	}
+
+	// 3. Codex goal directive defaults to o3 model
+	codexGoal := NewCodexAdapter(context.Background(), root, Config{Directive: "goal"})
+	codexArgs := codexGoal.args("finish project", "")
+	if !hasValue(codexArgs, "o3") {
+		t.Fatalf("expected Codex goal directive to use o3 model, got: %v", codexArgs)
+	}
+
+	// 4. Codex browser directive includes search
+	codexBrowser := NewCodexAdapter(context.Background(), root, Config{Directive: "browser"})
+	browserArgs := codexBrowser.args("search docs", "")
+	if !hasValue(browserArgs, "--search") {
+		t.Fatalf("expected Codex browser directive to include --search, got: %v", browserArgs)
+	}
+
+	// 5. Codex btw directive includes read-only sandbox
+	codexBtw := NewCodexAdapter(context.Background(), root, Config{Directive: "btw"})
+	btwArgs := codexBtw.args("what is this?", "")
+	if !hasValue(btwArgs, "read-only") {
+		t.Fatalf("expected Codex btw directive to include read-only sandbox, got: %v", btwArgs)
+	}
+}

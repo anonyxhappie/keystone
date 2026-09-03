@@ -31,17 +31,100 @@ func IsReadOnlyRequest(request string) bool {
 	return false
 }
 
+// KnownDirectives lists specialized harness workflows supported across Keystone.
+var KnownDirectives = []string{
+	"goal",
+	"boost",
+	"teamwork-preview",
+	"browser",
+	"learn",
+	"schedule",
+	"grill-me",
+	"btw",
+}
+
+// ExtractDirective inspects a prompt for a leading slash directive (e.g. /goal, /boost).
+func ExtractDirective(request string) (directive string, cleanRequest string) {
+	trimmed := strings.TrimSpace(request)
+	if !strings.HasPrefix(trimmed, "/") {
+		return "", trimmed
+	}
+	parts := strings.Fields(trimmed)
+	if len(parts) == 0 {
+		return "", trimmed
+	}
+	cmd := strings.TrimPrefix(strings.ToLower(parts[0]), "/")
+	for _, kd := range KnownDirectives {
+		if cmd == kd {
+			remainder := strings.TrimSpace(trimmed[len(parts[0]):])
+			return cmd, remainder
+		}
+	}
+	return "", trimmed
+}
+
+// DetectAutonomousEscalation applies heuristics to engage /goal or /boost for complex tasks.
+func DetectAutonomousEscalation(request string) string {
+	lower := strings.ToLower(request)
+
+	// Boost triggers: deep thinking, multi-agent orchestration, complex architectural design
+	boostPhrases := []string{
+		"deep analysis",
+		"multi-agent",
+		"orchestrate",
+		"architectural plan",
+		"complex redesign",
+	}
+	for _, phrase := range boostPhrases {
+		if strings.Contains(lower, phrase) {
+			return "boost"
+		}
+	}
+
+	// Goal triggers: multi-step objectives, large refactors, complete implementations, migrations
+	goalPhrases := []string{
+		"refactor the entire",
+		"refactor all",
+		"migrate",
+		"implement from scratch",
+		"build the entire",
+		"finish all tasks",
+		"complete the project",
+		"fix all errors",
+		"fix all issues",
+		"end-to-end implementation",
+	}
+	for _, phrase := range goalPhrases {
+		if strings.Contains(lower, phrase) {
+			return "goal"
+		}
+	}
+
+	return ""
+}
+
 func NewOrder(request string) domain.WorkOrder {
 	now := time.Now().UTC()
-	readOnly := IsReadOnlyRequest(request)
+	directive, cleanRequest := ExtractDirective(request)
+	if directive == "" {
+		directive = DetectAutonomousEscalation(request)
+	}
+
+	readOnly := IsReadOnlyRequest(request) || directive == "btw"
 	constraints := []string{}
 	if readOnly {
 		constraints = append(constraints, "read-only: do not modify any repository files")
 	}
+
+	obj := strings.TrimSpace(cleanRequest)
+	if obj == "" {
+		obj = strings.TrimSpace(request)
+	}
+
 	return domain.WorkOrder{
 		ID:            fmt.Sprintf("WO-%d", now.UnixNano()),
 		SourceRequest: request,
-		Objective:     strings.TrimSpace(request),
+		Objective:     obj,
 		Risk:          domain.Risk{Level: "low", Score: 0},
 		Autonomy:      "assist",
 		Status:        domain.StatusPlanned,
@@ -49,6 +132,7 @@ func NewOrder(request string) domain.WorkOrder {
 		UpdatedAt:     now,
 		Constraints:   constraints,
 		ReadOnly:      readOnly,
+		Directive:     directive,
 	}
 }
 
@@ -84,5 +168,6 @@ func Packet(o domain.WorkOrder) domain.WorkPacket {
 		Constraints:        o.Constraints,
 		CompletionCriteria: criteria,
 		ReadOnly:           o.ReadOnly,
+		Directive:          o.Directive,
 	}
 }

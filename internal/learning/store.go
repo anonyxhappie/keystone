@@ -75,3 +75,24 @@ func Active(s state.Store, scope string) []domain.Learning {
 	}
 	return active
 }
+
+// CaptureLesson records a learned rule or insight durably in .keystone/learning/
+func CaptureLesson(s state.Store, summary, details string) (domain.Learning, error) {
+	now := time.Now().UTC()
+	l := domain.Learning{
+		ID:             fmt.Sprintf("L-%d", now.UnixNano()),
+		Scope:          "project",
+		Status:         "ACTIVE",
+		Version:        1,
+		Observation:    summary,
+		ProposedChange: details,
+		Outcome:        "captured via harness /learn workflow",
+		Confidence:     0.95,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+	if err := s.Write("learning/"+l.ID+".json", l); err != nil {
+		return l, err
+	}
+	return l, nil
+}

@@ -139,6 +139,8 @@ func mapNaturalCommand(input string) string {
 		return "/model"
 	case "harness", "select harness", "change harness", "switch harness":
 		return "/harness"
+	case "learn", "capture learning", "reflect":
+		return "/learn"
 	}
 	return ""
 }
@@ -201,6 +203,8 @@ func (r *REPL) handleSlashCommand(input string) {
 	switch cmd {
 	case "/help":
 		r.showHelp()
+	case "/goal", "/boost", "/teamwork-preview", "/browser", "/learn", "/schedule", "/grill-me", "/btw":
+		r.executePrompt(input)
 	case "/harness":
 		r.handleHarness(args)
 	case "/model", "/models":
@@ -236,6 +240,14 @@ func (r *REPL) handleSlashCommand(input string) {
 
 func (r *REPL) showHelp() {
 	fmt.Fprintf(r.out, "\n%s\n", ui.Bold+"Available Slash Commands:"+ui.Reset)
+	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/goal <task>"+ui.Reset, "Run until the specified goal is completely finished")
+	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/boost <prompt>"+ui.Reset, "Invoke Boost multi-agent orchestrator for complex tasks")
+	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/teamwork-preview"+ui.Reset, "Invoke a team of agents to autonomously tackle projects")
+	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/browser <task>"+ui.Reset, "Invoke browser agent for web tasks")
+	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/learn"+ui.Reset, "Reflect on recent work and save durable rules to .keystone")
+	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/schedule <timer>"+ui.Reset, "Run an instruction on a recurring schedule or timer")
+	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/grill-me [topic]"+ui.Reset, "Interview me to align on a plan")
+	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/btw <question>"+ui.Reset, "Ask a quick question without interrupting main run")
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/sessions"+ui.Reset, "List conversations from Keystone and installed harnesses")
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/resume [id|#]"+ui.Reset, "Resume an existing conversation by ID or index number")
 	fmt.Fprintf(r.out, "  %-24s %s\n", ui.Cyan+"/new"+ui.Reset, "Start a brand-new conversation (resets active session)")
@@ -569,14 +581,25 @@ func (r *REPL) executePrompt(prompt string) {
 		return
 	}
 
+	directive, cleanPrompt := work.ExtractDirective(prompt)
+	if directive == "" {
+		directive = work.DetectAutonomousEscalation(prompt)
+	}
+	_ = cleanPrompt
+
 	e.RequestedHarness = r.harness
 	e.ResumeSessionID = r.sessionID
 	e.AdapterFactory = func() harness.Adapter {
 		if r.harness != "" && r.harness != "auto" {
 			adapter, _, err := harness.SelectHarness(context.Background(), r.root, r.harness)
 			if err == nil && adapter != nil {
-				if cliAdapter, ok := adapter.(*harness.CLIAdapter); ok && r.model != "" {
-					cliAdapter.Config.Model = r.model
+				if cliAdapter, ok := adapter.(*harness.CLIAdapter); ok {
+					if r.model != "" {
+						cliAdapter.Config.Model = r.model
+					}
+					if directive != "" {
+						cliAdapter.Config.Directive = directive
+					}
 				}
 				return adapter
 			}
@@ -587,6 +610,9 @@ func (r *REPL) executePrompt(prompt string) {
 		}
 		if r.model != "" {
 			cfg.Model = r.model
+		}
+		if directive != "" {
+			cfg.Directive = directive
 		}
 		return harness.NewAdapter(context.Background(), r.root, cfg)
 	}
@@ -605,6 +631,10 @@ func (r *REPL) executePrompt(prompt string) {
 		r.sessionID = report.HarnessSessionID
 		session.SetLastSession(r.root, r.sessionID)
 		session.SetLastHarness(r.root, r.harness)
+	}
+
+	if directive == "learn" && runErr == nil {
+		fmt.Fprintf(r.out, "%s Extracted and persisted learned rules into %s\n\n", ui.Green+"✔"+ui.Reset, ui.Bold+".keystone/learning/"+ui.Reset)
 	}
 
 	summaries := []ui.ValidationSummary{}

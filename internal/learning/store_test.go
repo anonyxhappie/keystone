@@ -34,3 +34,21 @@ func TestLearningLifecycleIsExplicitAndVersioned(t *testing.T) {
 		t.Fatalf("unexpected superseded record: %+v %v", l, err)
 	}
 }
+
+func TestCaptureLesson(t *testing.T) {
+	s := state.New(t.TempDir())
+	if _, err := s.Init("fixture", nil); err != nil {
+		t.Fatal(err)
+	}
+	lesson, err := CaptureLesson(s, "Always check PostgreSQL liveness before running db tests", "Add healthcheck precondition")
+	if err != nil {
+		t.Fatalf("failed to capture lesson: %v", err)
+	}
+	if lesson.Status != "ACTIVE" || lesson.Observation != "Always check PostgreSQL liveness before running db tests" {
+		t.Fatalf("unexpected captured lesson: %+v", lesson)
+	}
+	active := Active(s, "project")
+	if len(active) != 1 {
+		t.Fatalf("expected 1 active learning in store, got %d", len(active))
+	}
+}

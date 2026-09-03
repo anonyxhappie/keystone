@@ -69,12 +69,21 @@ Keystone features a persistent terminal shell (similar to Claude Code and Antigr
   ```
 - **Conversation History**: When resuming an existing session or switching workspaces, Keystone automatically renders recent conversation turns.
 
-### Interactive Slash Commands
+### Interactive Slash Commands & Native Harness Tools
 
 Type `/` in the prompt for interactive dropdown suggestions, or run commands directly:
 
 | Command | Description |
 | :--- | :--- |
+| `/goal <task>` | Run until the specified goal is completely finished (autonomous goal mode) |
+| `/boost <prompt>` | Invoke Boost multi-agent orchestrator for complex tasks and deep reasoning |
+| `/teamwork-preview` | Invoke a team of agents to autonomously tackle large projects |
+| `/browser <task>` | Invoke a browser agent for web lookups and documentation retrieval |
+| `/learn` | Reflect on recent successes/corrections and capture durable rules into `.keystone/learning/` |
+| `/schedule <timer>` | Run an instruction on a recurring schedule or as a one-time timer |
+| `/grill-me [topic]` | Interview me to align on design decisions and execution plans |
+| `/btw <question>` | Ask a quick read-only question without interrupting the main conversation |
+| `/model [name]` | View or switch active model for the current harness |
 | `/sessions` | Interactive picker for recent conversations across Keystone and installed harnesses |
 | `/resume [id\|#]` | Resume an existing conversation by index number or conversation ID |
 | `/new` | Start a brand-new conversation session (resets session ID) |
@@ -89,6 +98,17 @@ Type `/` in the prompt for interactive dropdown suggestions, or run commands dir
 | `/clear` | Clear the terminal screen |
 | `/exit` | Exit the interactive session |
 
+### Heuristic Auto-Escalation
+
+Keystone can automatically engage autonomous directives even when you do not specify a slash command:
+- **Auto-Goal (`/goal`)**: Triggered for multi-step goals, large refactors, full migrations, and end-to-end implementations (e.g. *"refactor all repository adapters"*, *"migrate database schemas"*).
+- **Auto-Boost (`/boost`)**: Triggered for complex architectural tasks requiring deep analysis and multi-perspective evaluation (e.g. *"deep analysis of concurrency bottlenecks"*).
+- **Auto-Read-Only (`/btw`)**: Triggered for questions and inspections to guarantee repository mutations are strictly prevented and reverted.
+
+### Durable Learning Memory (`.keystone/learning/`)
+
+Whenever `/learn` is invoked (or captured from harness reflections), Keystone persists the lessons, hypotheses, and recommendations into `.keystone/learning/L-<id>.json`. Any harness invoked on the project in the future automatically inherits these lessons during context compilation.
+
 ### Natural Language Shell Aliases
 
 You do not have to use slash prefixes for common terminal queries. Keystone recognizes natural-language shell queries and executes them immediately without spawning an unnecessary WorkOrder:
@@ -98,6 +118,9 @@ You do not have to use slash prefixes for common terminal queries. Keystone reco
 - `doctor`, `check health`, `health`, `system check` → `/doctor`
 - `verify`, `run tests`, `check tests`, `validate` → `/verify`
 - `status`, `show status`, `current status` → `/status`
+- `learn`, `capture learning`, `reflect` → `/learn`
+- `model`, `switch model` → `/model`
+- `harness`, `switch harness` → `/harness`
 - `review`, `findings` → `/review`
 - `clear`, `cls` → `/clear`
 - `help`, `commands`, `what can you do` → `/help`

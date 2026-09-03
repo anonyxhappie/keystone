@@ -133,6 +133,12 @@ func TestMapNaturalCommand(t *testing.T) {
 		"show status":     "/status",
 		"clear":           "/clear",
 		"new":             "/new",
+		"model":           "/model",
+		"switch model":    "/model",
+		"harness":         "/harness",
+		"switch harness":  "/harness",
+		"learn":           "/learn",
+		"reflect":         "/learn",
 	}
 
 	for input, expected := range cases {
@@ -144,5 +150,26 @@ func TestMapNaturalCommand(t *testing.T) {
 
 	if mapNaturalCommand("implement user authentication") != "" {
 		t.Errorf("expected regular prompt not to be mapped to slash command")
+	}
+}
+
+func TestREPLDirectivesExecution(t *testing.T) {
+	root := setupTestProject(t)
+	input := strings.Join([]string{
+		"/btw what is the status?",
+		"/exit",
+	}, "\n") + "\n"
+
+	in := strings.NewReader(input)
+	var out bytes.Buffer
+
+	r := New(root, "auto", "", in, &out)
+	err := r.Run()
+	if err != nil {
+		t.Fatalf("unexpected REPL error: %v", err)
+	}
+	output := out.String()
+	if !strings.Contains(output, "what is the status?") {
+		t.Fatalf("expected prompt to be executed: %s", output)
 	}
 }

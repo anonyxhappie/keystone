@@ -53,3 +53,40 @@ func TestReadOnlyRequestDetectionAndPacket(t *testing.T) {
 		}
 	}
 }
+
+func TestDirectiveExtractionAndEscalation(t *testing.T) {
+	// 1. Explicit slash command extraction
+	dir, clean := ExtractDirective("/goal implement the entire user authentication system")
+	if dir != "goal" || clean != "implement the entire user authentication system" {
+		t.Fatalf("unexpected extract: dir=%q, clean=%q", dir, clean)
+	}
+
+	dirBtw, _ := ExtractDirective("/btw what is the database schema?")
+	if dirBtw != "btw" {
+		t.Fatalf("expected btw directive, got %q", dirBtw)
+	}
+	orderBtw := NewOrder("/btw what is the database schema?")
+	if !orderBtw.ReadOnly {
+		t.Fatalf("expected /btw to be automatically marked ReadOnly")
+	}
+	if orderBtw.Directive != "btw" {
+		t.Fatalf("expected order directive to be btw, got %q", orderBtw.Directive)
+	}
+
+	// 2. Heuristic auto-escalation
+	escGoal := DetectAutonomousEscalation("refactor all repository adapters to use contexts")
+	if escGoal != "goal" {
+		t.Fatalf("expected auto-escalation to goal, got %q", escGoal)
+	}
+
+	escBoost := DetectAutonomousEscalation("perform deep analysis on the system architecture")
+	if escBoost != "boost" {
+		t.Fatalf("expected auto-escalation to boost, got %q", escBoost)
+	}
+
+	// 3. NewOrder with auto-escalation
+	orderGoal := NewOrder("refactor all repository adapters")
+	if orderGoal.Directive != "goal" {
+		t.Fatalf("expected auto-escalated directive 'goal', got %q", orderGoal.Directive)
+	}
+}

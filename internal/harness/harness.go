@@ -64,6 +64,17 @@ type MetadataProvider interface {
 
 var ErrUnsupported = errors.New("harness capability is unsupported")
 
+const (
+	CapGoalMode     = "goal_mode"
+	CapBoost        = "boost"
+	CapTeamwork     = "teamwork"
+	CapBrowser      = "browser"
+	CapLearning     = "learning"
+	CapSchedule     = "schedule"
+	CapInterview    = "interview"
+	CapSideQuestion = "side_question"
+)
+
 type Manual struct{}
 
 func (Manual) Discover() error                           { return nil }

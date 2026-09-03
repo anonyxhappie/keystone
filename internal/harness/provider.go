@@ -138,10 +138,16 @@ func (a *CLIAdapter) Metadata() Metadata {
 }
 
 func (a *CLIAdapter) Start(packet domain.WorkPacket) (string, error) {
+	if packet.Directive != "" && a.Config.Directive == "" {
+		a.Config.Directive = packet.Directive
+	}
 	return a.start(Render(packet), "")
 }
 
 func (a *CLIAdapter) DispatchPrompt(p domain.Prompt) (string, error) {
+	if p.Directive != "" && a.Config.Directive == "" {
+		a.Config.Directive = p.Directive
+	}
 	resumeSession := p.HarnessSessionID
 	if resumeSession == "" {
 		a.mu.Lock()
@@ -386,8 +392,25 @@ func (a *CLIAdapter) diagnostic() string {
 
 func (a *CLIAdapter) args(prompt, resumeSession string) []string {
 	args := append([]string(nil), a.Config.Args...)
+	directive := strings.ToLower(strings.TrimSpace(a.Config.Directive))
+
 	switch a.provider {
 	case "codex":
+		if directive == "goal" {
+			if !hasArg(args, "--model") && !hasArg(args, "-m") && (a.Config.Model == "" || a.Config.Model == "auto") {
+				args = append(args, "--model", "o3")
+			}
+		}
+		if directive == "btw" {
+			if !hasArg(args, "--sandbox") {
+				args = append(args, "--sandbox", "read-only")
+			}
+		}
+		if directive == "browser" {
+			if !hasArg(args, "--search") {
+				args = append(args, "--search")
+			}
+		}
 		if resumeSession != "" {
 			args = append(args, "exec", "resume")
 			if !hasArg(args, "--json") {
@@ -414,7 +437,15 @@ func (a *CLIAdapter) args(prompt, resumeSession string) []string {
 		if resumeSession != "" {
 			_ = session.EnsureAntigravitySessionAvailable(resumeSession)
 		}
-		args = append(args, "-p", prompt)
+		effectivePrompt := prompt
+		if directive != "" && !strings.HasPrefix(strings.TrimSpace(prompt), "/"+directive) {
+			if strings.TrimSpace(prompt) == "" {
+				effectivePrompt = "/" + directive
+			} else {
+				effectivePrompt = fmt.Sprintf("/%s %s", directive, prompt)
+			}
+		}
+		args = append(args, "-p", effectivePrompt)
 		if !hasArg(args, "--output-format") {
 			args = append(args, "--output-format", "stream-json")
 		}
@@ -428,7 +459,11 @@ func (a *CLIAdapter) args(prompt, resumeSession string) []string {
 			args = append(args, "--conversation", resumeSession)
 		}
 	default:
-		args = append(args, prompt)
+		effectivePrompt := prompt
+		if directive != "" && !strings.HasPrefix(strings.TrimSpace(prompt), "/"+directive) {
+			effectivePrompt = fmt.Sprintf("[%s] %s", strings.ToUpper(directive), prompt)
+		}
+		args = append(args, effectivePrompt)
 	}
 	return args
 }
@@ -533,7 +568,7 @@ func classifyProviderEvent(provider, eventType string, raw map[string]any) (stri
 				}
 				return "TOOL_STARTED", summary
 			default:
-				message := firstString(item, "text", "message", "content")
+				message := firstString(item, "text", "message", "content", "summary")
 				if message == "" {
 					message = summary
 				}
@@ -611,7 +646,7 @@ func providerEventStatus(provider, eventType string, raw map[string]any) domain.
 }
 
 func providerSummary(raw map[string]any, fallback string) string {
-	for _, key := range []string{"command", "tool_name", "toolName", "response", "message", "text", "text_delta", "aggregated_output", "output", "error"} {
+	for _, key := range []string{"command", "tool_name", "toolName", "response", "message", "text", "text_delta", "summary", "aggregated_output", "output", "error"} {
 		if value := firstString(raw, key); value != "" {
 			return value
 		}

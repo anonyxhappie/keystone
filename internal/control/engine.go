@@ -438,6 +438,9 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 		}
 
 		// Dispatch prompt to harness adapter
+		if cliAdapter, ok := current.(*harness.CLIAdapter); ok && order.Directive != "" {
+			cliAdapter.Config.Directive = order.Directive
+		}
 		if dispatcher, ok := current.(harness.PromptDispatcher); ok {
 			harnessSession, err = dispatcher.DispatchPrompt(prm)
 		} else if currentSessionID != "" {
@@ -584,6 +587,29 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 		}
 		if err := e.event(runID, "HarnessObserved", map[string]any{"turn": attempt, "sessionId": harnessSession, "observationCount": len(observations)}); err != nil {
 			return e.block(ctx, m, report, err)
+		}
+		if order.Directive == "learn" && len(observations) > 0 {
+			var lessonSummary, lessonDetails string
+			for i := len(observations) - 1; i >= 0; i-- {
+				o := observations[i]
+				if o.Type == "SESSION_STARTED" || o.Type == "TURN_STARTED" || o.Type == "TURN_COMPLETED" {
+					continue
+				}
+				if lessonSummary == "" && o.Summary != "" {
+					lessonSummary = o.Summary
+				}
+				if o.Payload != nil && lessonDetails == "" {
+					if rawText, ok := o.Payload["text"].(string); ok && rawText != "" {
+						lessonDetails = rawText
+					}
+				}
+			}
+			if lessonSummary != "" {
+				if lessonDetails == "" {
+					lessonDetails = lessonSummary
+				}
+				_, _ = learning.CaptureLesson(e.Store, lessonSummary, lessonDetails)
+			}
 		}
 		if observeErr != nil && observeErr != io.EOF {
 			if err := e.event(runID, "OBSERVATION_GAP", map[string]any{"error": observeErr.Error()}); err != nil {

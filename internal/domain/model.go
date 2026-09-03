@@ -83,6 +83,7 @@ type Prompt struct {
 	Hypothesis       string    `json:"hypothesis,omitempty" yaml:"hypothesis,omitempty"`
 	ExpectedInfoGain string    `json:"expectedInfoGain,omitempty" yaml:"expectedInfoGain,omitempty"`
 	Content          string    `json:"content" yaml:"content"`
+	Directive        string    `json:"directive,omitempty" yaml:"directive,omitempty"`
 	Dispatched       bool      `json:"dispatched" yaml:"dispatched"`
 	CreatedAt        time.Time `json:"createdAt" yaml:"createdAt"`
 	DispatchedAt     time.Time `json:"dispatchedAt,omitempty" yaml:"dispatchedAt,omitempty"`
@@ -175,6 +176,7 @@ type WorkOrder struct {
 	RunID            string            `json:"runId,omitempty" yaml:"runId,omitempty"`
 	HarnessSelection *HarnessSelection `json:"harnessSelection,omitempty" yaml:"harnessSelection,omitempty"`
 	ReadOnly         bool              `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
+	Directive        string            `json:"directive,omitempty" yaml:"directive,omitempty"`
 }
 
 type Risk struct {
@@ -197,6 +199,7 @@ type WorkPacket struct {
 	ContextBudget      int               `json:"contextBudget,omitempty" yaml:"contextBudget,omitempty"`
 	ContextTokens      int               `json:"contextTokens,omitempty" yaml:"contextTokens,omitempty"`
 	ReadOnly           bool              `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
+	Directive        string            `json:"directive,omitempty" yaml:"directive,omitempty"`
 }
 
 type ContextRef struct {

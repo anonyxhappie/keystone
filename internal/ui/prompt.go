@@ -20,6 +20,15 @@ type CommandItem struct {
 
 // DefaultSlashCommands lists all built-in slash commands.
 var DefaultSlashCommands = []CommandItem{
+	{Command: "/goal", Description: "Run until the specified goal is completely finished", InsertText: "/goal ", Immediate: false},
+	{Command: "/boost", Description: "Invoke the Boost multi-agent orchestrator for complex tasks", InsertText: "/boost ", Immediate: false},
+	{Command: "/teamwork-preview", Description: "Invoke a team of agents to autonomously tackle large projects", InsertText: "/teamwork-preview ", Immediate: false},
+	{Command: "/browser", Description: "Invoke a browser agent for web tasks", InsertText: "/browser ", Immediate: false},
+	{Command: "/learn", Description: "Reflect on recent work to capture reusable rules into .keystone", InsertText: "/learn", Immediate: true},
+	{Command: "/schedule", Description: "Run an instruction on a recurring schedule or timer", InsertText: "/schedule ", Immediate: false},
+	{Command: "/grill-me", Description: "Interview me to align on a plan", InsertText: "/grill-me ", Immediate: false},
+	{Command: "/btw", Description: "Ask a quick question without interrupting the main conversation", InsertText: "/btw ", Immediate: false},
+	{Command: "/model", Description: "View or switch active model for current harness", InsertText: "/model ", Immediate: false},
 	{Command: "/sessions", Description: "List conversations across Keystone & harnesses", InsertText: "/sessions", Immediate: true},
 	{Command: "/resume", Description: "Resume a conversation by index or session ID", InsertText: "/resume ", Immediate: false},
 	{Command: "/new", Description: "Start a fresh conversation (reset active session)", InsertText: "/new", Immediate: true},

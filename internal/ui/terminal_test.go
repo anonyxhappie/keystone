@@ -124,6 +124,7 @@ func TestTerminalReport(t *testing.T) {
 		0,
 		5108,
 		2,
+		6,
 		"completion was not verified",
 		validations,
 	)
@@ -134,7 +135,7 @@ func TestTerminalReport(t *testing.T) {
 		"RUN-100",
 		"antigravity",
 		"ses-300",
-		"2 of 2",
+		"2 of 6",
 		"0 mutations",
 		"5108 / 20,000",
 		"vitest",

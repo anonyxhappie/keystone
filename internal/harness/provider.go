@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/anonyxhappie/keystone/internal/domain"
+	"github.com/anonyxhappie/keystone/internal/session"
 )
 
 // CLIAdapter bridges a provider's documented headless CLI into Keystone's
@@ -407,9 +408,15 @@ func (a *CLIAdapter) args(prompt, resumeSession string) []string {
 			args = append(args, prompt)
 		}
 	case "antigravity":
+		if resumeSession != "" {
+			_ = session.EnsureAntigravitySessionAvailable(resumeSession)
+		}
 		args = append(args, "-p", prompt)
 		if !hasArg(args, "--output-format") {
 			args = append(args, "--output-format", "stream-json")
+		}
+		if !hasArg(args, "--dangerously-skip-permissions") {
+			args = append(args, "--dangerously-skip-permissions")
 		}
 		if resumeSession != "" && !hasArg(args, "--conversation") {
 			args = append(args, "--conversation", resumeSession)
@@ -535,12 +542,27 @@ func classifyProviderEvent(provider, eventType string, raw map[string]any) (stri
 		return "SESSION_STARTED", "Antigravity conversation started: " + firstString(raw, "conversation_id", "session_id")
 	case "step_update", "step.update":
 		stepType := strings.ToLower(firstString(raw, "step_type", "stepType", "type_name"))
-		if strings.Contains(stepType, "tool") {
+		toolName := firstString(raw, "tool_name", "toolName", "name")
+		if strings.Contains(stepType, "tool") || toolName != "" {
 			state := strings.ToLower(firstString(raw, "status", "state", "step_status"))
-			if state == "started" || state == "running" || state == "in_progress" {
-				return "TOOL_STARTED", providerSummary(raw, firstString(raw, "tool_name", "toolName", "name"))
+			args := firstString(raw, "command", "commandline", "CommandLine", "args", "arguments", "input")
+			summary := toolName
+			if summary == "" {
+				summary = "tool"
 			}
-			return "TOOL_COMPLETED", providerSummary(raw, firstString(raw, "tool_name", "toolName", "name"))
+			if args != "" {
+				if len(args) > 80 {
+					args = args[:77] + "..."
+				}
+				summary += "(" + args + ")"
+			}
+			if strings.Contains(toolName, "ask_") || strings.Contains(stepType, "permission") || strings.Contains(stepType, "question") {
+				return "HARNESS_REQUEST", fmt.Sprintf("%s: %s", toolName, firstString(raw, "question", "prompt", "message", "reason"))
+			}
+			if state == "started" || state == "running" || state == "in_progress" || state == "active" {
+				return "TOOL_STARTED", summary
+			}
+			return "TOOL_COMPLETED", summary
 		}
 		if strings.Contains(stepType, "agent") || strings.Contains(stepType, "response") || firstString(raw, "text_delta", "text", "response") != "" {
 			message := firstString(raw, "text_delta", "text", "response", "message")

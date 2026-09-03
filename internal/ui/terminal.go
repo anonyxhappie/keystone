@@ -131,6 +131,21 @@ func (t *Terminal) OnEvent(ev observation.Event) {
 		fmt.Fprintf(t.out, "%s %s Lifecycle decision: %s (%v)\n", ts, t.color(Bold, "⚖️"), t.color(Bold+Cyan, fmt.Sprint(decision)), reason)
 	case "HARNESS_SWITCHED":
 		fmt.Fprintf(t.out, "%s %s Switched harness: %v → %v (Attempt %v)\n", ts, t.color(Yellow, "🔄"), ev.Payload["from"], ev.Payload["to"], ev.Payload["attempt"])
+	case "HARNESS_SESSION_RESUMED":
+		fmt.Fprintf(t.out, "%s %s Harness session resumed: %v (Attempt %v)\n", ts, t.color(Green, "↳ 🔁"), ev.Payload["sessionId"], ev.Payload["attempt"])
+	case "PromptDispatched":
+		if reason, ok := ev.Payload["reason"].(string); ok && reason != "" {
+			fmt.Fprintf(t.out, "   %s %s Keystone direction: %s\n", ts, t.color(Bold+Magenta, "↳ 🛡️"), reason)
+		}
+	case "FAILURE_DIAGNOSIS":
+		if summary, ok := ev.Payload["summary"].(string); ok && summary != "" {
+			fmt.Fprintf(t.out, "   %s %s Supervisor diagnosis: %s\n", ts, t.color(Bold+Red, "↳ 🔍"), summary)
+		}
+	case "HARNESS_REQUEST_ANSWERED":
+		req := ev.Payload["request"]
+		ans := ev.Payload["answer"]
+		reason := ev.Payload["reason"]
+		fmt.Fprintf(t.out, "   %s %s Harness requested: %v\n   %s %s Keystone answered: %v (Reason: %v)\n", ts, t.color(Yellow, "↳ ❓"), req, ts, t.color(Green, "↳ 🛡️"), ans, reason)
 	}
 }
 
@@ -140,18 +155,26 @@ func (t *Terminal) OnObservation(obs domain.Observation) {
 	switch obs.Type {
 	case "TOOL_STARTED":
 		summary := obs.Summary
-		if len(summary) > 100 {
-			summary = summary[:97] + "..."
+		if len(summary) > 120 {
+			summary = summary[:117] + "..."
 		}
-		fmt.Fprintf(t.out, "   %s %s %s\n", ts, t.color(Cyan, "↳ 🛠 "), t.color(Dim, summary))
+		fmt.Fprintf(t.out, "   %s %s %s\n", ts, t.color(Cyan, "↳ ⚡ Tool:"), summary)
+	case "TOOL_COMPLETED":
+		summary := obs.Summary
+		if len(summary) > 120 {
+			summary = summary[:117] + "..."
+		}
+		fmt.Fprintf(t.out, "   %s %s %s\n", ts, t.color(Green, "↳ ✔ Result:"), summary)
 	case "COMMAND_STARTED":
 		summary := obs.Summary
-		if len(summary) > 100 {
-			summary = summary[:97] + "..."
+		if len(summary) > 120 {
+			summary = summary[:117] + "..."
 		}
 		fmt.Fprintf(t.out, "   %s %s %s\n", ts, t.color(Yellow, "↳ 💻"), t.color(Dim, summary))
-	case "FILE_TOUCHED":
+	case "FILE_TOUCHED", "FILE_CHANGED":
 		fmt.Fprintf(t.out, "   %s %s %s\n", ts, t.color(Green, "↳ 📄"), obs.Summary)
+	case "HARNESS_REQUEST":
+		fmt.Fprintf(t.out, "   %s %s Harness requested: %s\n", ts, t.color(Yellow, "↳ ❓"), obs.Summary)
 	case "COMPLETION_CLAIM":
 		lines := strings.Split(strings.TrimSpace(obs.Summary), "\n")
 		if len(lines) == 1 && len(obs.Summary) <= 120 {
@@ -172,9 +195,7 @@ func (t *Terminal) OnObservation(obs domain.Observation) {
 		for _, line := range lines {
 			lineTrimmed := strings.TrimRight(line, " \t\r")
 			if lineTrimmed != "" {
-				fmt.Fprintf(t.out, "   %s %s\n", t.color(Cyan, "│"), lineTrimmed)
-			} else {
-				fmt.Fprintln(t.out)
+				fmt.Fprintf(t.out, "   %s %s %s\n", ts, t.color(Bold+Green, "↳ 🤖"), lineTrimmed)
 			}
 		}
 	case "SESSION_STARTED":
@@ -209,6 +230,7 @@ func (t *Terminal) Report(
 	mutationsCount int,
 	contextTokens int,
 	attempts int,
+	maxAttempts int,
 	errorMsg string,
 	validations []ValidationSummary,
 ) {
@@ -232,7 +254,10 @@ func (t *Terminal) Report(
 	if sessionID != "" {
 		fmt.Fprintf(t.out, "  • %-18s %s\n", "Harness Session:", sessionID)
 	}
-	fmt.Fprintf(t.out, "  • %-18s %d of 2\n", "Attempts:", attempts)
+	if maxAttempts <= 0 {
+		maxAttempts = 6
+	}
+	fmt.Fprintf(t.out, "  • %-18s %d of %d\n", "Attempts:", attempts, maxAttempts)
 
 	if readOnly {
 		if mutationsCount == 0 {

@@ -39,17 +39,19 @@ type REPL struct {
 // New creates a new interactive REPL session.
 func New(root, defaultHarness string, in io.Reader, out io.Writer) *REPL {
 	if defaultHarness == "" {
-		defaultHarness = "auto"
+		defaultHarness = session.GetLastHarness(root)
 	}
+	lastSession := session.GetLastSession(root)
 	term := ui.New(out)
-	editor := ui.NewPromptEditor(in, out, defaultHarness, "", "ready")
+	editor := ui.NewPromptEditor(in, out, defaultHarness, lastSession, "ready")
 	r := &REPL{
-		root:    root,
-		harness: defaultHarness,
-		term:    term,
-		editor:  editor,
-		in:      in,
-		out:     out,
+		root:      root,
+		harness:   defaultHarness,
+		sessionID: lastSession,
+		term:      term,
+		editor:    editor,
+		in:        in,
+		out:       out,
 	}
 	editor.SetSuggestionProvider(r.provideSuggestions)
 	return r
@@ -58,6 +60,11 @@ func New(root, defaultHarness string, in io.Reader, out io.Writer) *REPL {
 // Run starts the persistent interactive loop. It only terminates when the user manually exits.
 func (r *REPL) Run() error {
 	r.printWelcome()
+
+	if r.sessionID != "" {
+		fmt.Fprintf(r.out, "%s Restored active session: %s (%s)\n", ui.Green+"✔"+ui.Reset, ui.Bold+r.sessionID+ui.Reset, r.harness)
+		session.RenderConversationHistory(r.out, r.harness, r.sessionID, 5)
+	}
 
 	for {
 		r.editor.SetContext(r.harness, r.sessionID, "ready")
@@ -194,6 +201,7 @@ func (r *REPL) handleSlashCommand(input string) {
 		r.handleResume(args)
 	case "/new":
 		r.sessionID = ""
+		session.SetLastSession(r.root, "")
 		fmt.Fprintf(r.out, "%s Started fresh conversation context.\n\n", ui.Green+"✔"+ui.Reset)
 	case "/projects":
 		r.handleListProjects()
@@ -247,6 +255,7 @@ func (r *REPL) handleHarness(args []string) {
 		target = "antigravity"
 	}
 	r.harness = target
+	session.SetLastHarness(r.root, target)
 	fmt.Fprintf(r.out, "%s Switched active harness to %s.\n\n", ui.Green+"✔"+ui.Reset, ui.Bold+ui.Cyan+r.harness+ui.Reset)
 }
 
@@ -276,7 +285,10 @@ func (r *REPL) handleListSessions() {
 		s := sessions[idx]
 		r.sessionID = s.ID
 		r.harness = s.Harness
-		fmt.Fprintf(r.out, "%s Resumed session #%d: %s (%s: %s)\n\n", ui.Green+"✔"+ui.Reset, idx+1, s.ID, s.Harness, s.Title)
+		session.SetLastSession(r.root, s.ID)
+		session.SetLastHarness(r.root, s.Harness)
+		fmt.Fprintf(r.out, "%s Resumed session #%d: %s (%s: %s)\n", ui.Green+"✔"+ui.Reset, idx+1, s.ID, s.Harness, s.Title)
+		session.RenderConversationHistory(r.out, r.harness, r.sessionID, 10)
 		return
 	}
 }
@@ -297,7 +309,10 @@ func (r *REPL) handleResume(args []string) {
 			s := r.cachedSessions[idx-1]
 			r.sessionID = s.ID
 			r.harness = s.Harness
-			fmt.Fprintf(r.out, "%s Resumed session #%d: %s (%s: %s)\n\n", ui.Green+"✔"+ui.Reset, idx, s.ID, s.Harness, s.Title)
+			session.SetLastSession(r.root, s.ID)
+			session.SetLastHarness(r.root, s.Harness)
+			fmt.Fprintf(r.out, "%s Resumed session #%d: %s (%s: %s)\n", ui.Green+"✔"+ui.Reset, idx, s.ID, s.Harness, s.Title)
+			session.RenderConversationHistory(r.out, r.harness, r.sessionID, 10)
 			return
 		}
 		fmt.Fprintf(r.out, "%s Invalid session index %d. Run %s to see valid numbers.\n\n", ui.Red+"✘"+ui.Reset, idx, ui.Bold+"/sessions"+ui.Reset)
@@ -306,7 +321,9 @@ func (r *REPL) handleResume(args []string) {
 
 	// Target is explicit session ID
 	r.sessionID = target
-	fmt.Fprintf(r.out, "%s Set active conversation session to %s.\n\n", ui.Green+"✔"+ui.Reset, r.sessionID)
+	session.SetLastSession(r.root, target)
+	fmt.Fprintf(r.out, "%s Set active conversation session to %s.\n", ui.Green+"✔"+ui.Reset, r.sessionID)
+	session.RenderConversationHistory(r.out, r.harness, r.sessionID, 10)
 }
 
 func (r *REPL) handleListProjects() {
@@ -330,10 +347,17 @@ func (r *REPL) handleListProjects() {
 	if idx >= 0 && idx < len(projects) {
 		p := projects[idx]
 		r.root = p.Path
-		r.sessionID = ""
+		r.sessionID = session.GetLastSession(r.root)
+		r.harness = session.GetLastHarness(r.root)
 		r.cachedProjects = session.DiscoverProjects(r.root)
 		r.cachedSessions = session.DiscoverSessions(r.root)
-		fmt.Fprintf(r.out, "%s Switched active workspace to: %s\n\n", ui.Green+"✔"+ui.Reset, p.Path)
+		fmt.Fprintf(r.out, "%s Switched active workspace to: %s\n", ui.Green+"✔"+ui.Reset, p.Path)
+		if r.sessionID != "" {
+			fmt.Fprintf(r.out, "%s Restored project session: %s (%s)\n", ui.Green+"✔"+ui.Reset, r.sessionID, r.harness)
+			session.RenderConversationHistory(r.out, r.harness, r.sessionID, 5)
+		} else {
+			fmt.Fprintln(r.out)
+		}
 		return
 	}
 }
@@ -368,10 +392,17 @@ func (r *REPL) handleSwitchProject(args []string) {
 	}
 
 	r.root = absPath
-	r.sessionID = "" // reset conversation on workspace switch
+	r.sessionID = session.GetLastSession(r.root)
+	r.harness = session.GetLastHarness(r.root)
 	r.cachedProjects = session.DiscoverProjects(r.root)
 	r.cachedSessions = session.DiscoverSessions(r.root)
-	fmt.Fprintf(r.out, "%s Switched active workspace to: %s\n\n", ui.Green+"✔"+ui.Reset, ui.Bold+r.root+ui.Reset)
+	fmt.Fprintf(r.out, "%s Switched active workspace to: %s\n", ui.Green+"✔"+ui.Reset, ui.Bold+r.root+ui.Reset)
+	if r.sessionID != "" {
+		fmt.Fprintf(r.out, "%s Restored project session: %s (%s)\n", ui.Green+"✔"+ui.Reset, r.sessionID, r.harness)
+		session.RenderConversationHistory(r.out, r.harness, r.sessionID, 5)
+	} else {
+		fmt.Fprintln(r.out)
+	}
 }
 
 func (r *REPL) handleStatus() {
@@ -526,6 +557,8 @@ func (r *REPL) executePrompt(prompt string) {
 	// Update session ID if established
 	if report.HarnessSessionID != "" {
 		r.sessionID = report.HarnessSessionID
+		session.SetLastSession(r.root, r.sessionID)
+		session.SetLastHarness(r.root, r.harness)
 	}
 
 	summaries := []ui.ValidationSummary{}
@@ -561,6 +594,7 @@ func (r *REPL) executePrompt(prompt string) {
 		len(report.Mutations),
 		report.ContextTokens,
 		report.Attempts,
+		e.Limits.MaxAttempts,
 		report.Error,
 		summaries,
 	)
@@ -577,7 +611,11 @@ func (r *REPL) executePrompt(prompt string) {
 				At:         time.Now().UTC(),
 			})
 			fmt.Fprintf(r.out, "%s Approval recorded. Continuing execution...\n", ui.Green+"✔"+ui.Reset)
-			_, _ = e.Continue(context.Background(), nil)
+			contReport, _ := e.Continue(context.Background(), nil)
+			if contReport.HarnessSessionID != "" {
+				r.sessionID = contReport.HarnessSessionID
+				session.SetLastSession(r.root, r.sessionID)
+			}
 		}
 	}
 }

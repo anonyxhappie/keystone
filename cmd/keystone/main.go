@@ -20,6 +20,7 @@ import (
 	"github.com/anonyxhappie/keystone/internal/project"
 	"github.com/anonyxhappie/keystone/internal/repl"
 	"github.com/anonyxhappie/keystone/internal/runtime"
+	"github.com/anonyxhappie/keystone/internal/session"
 	"github.com/anonyxhappie/keystone/internal/state"
 	"github.com/anonyxhappie/keystone/internal/ui"
 	"github.com/anonyxhappie/keystone/internal/validation"
@@ -94,6 +95,9 @@ func main() {
 }
 
 func runREPL(root, defaultHarness string) {
+	if defaultHarness == "" {
+		defaultHarness = session.GetLastHarness(root)
+	}
 	r := repl.New(root, defaultHarness, os.Stdin, os.Stdout)
 	if err := r.Run(); err != nil {
 		fatal(err)
@@ -272,6 +276,7 @@ func runRun(root string, args []string) {
 		len(report.Mutations),
 		report.ContextTokens,
 		report.Attempts,
+		e.Limits.MaxAttempts,
 		report.Error,
 		summaries,
 	)

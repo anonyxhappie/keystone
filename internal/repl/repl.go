@@ -1,8 +1,8 @@
 package repl
 
 import (
-	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -27,6 +27,7 @@ type REPL struct {
 	harness        string
 	sessionID      string
 	term           *ui.Terminal
+	editor         *ui.PromptEditor
 	cachedSessions []session.Session
 	cachedProjects []session.Project
 	in             io.Reader
@@ -38,10 +39,13 @@ func New(root, defaultHarness string, in io.Reader, out io.Writer) *REPL {
 	if defaultHarness == "" {
 		defaultHarness = "auto"
 	}
+	term := ui.New(out)
+	editor := ui.NewPromptEditor(in, out, defaultHarness, "", "ready")
 	return &REPL{
 		root:    root,
 		harness: defaultHarness,
-		term:    ui.New(out),
+		term:    term,
+		editor:  editor,
 		in:      in,
 		out:     out,
 	}
@@ -51,18 +55,18 @@ func New(root, defaultHarness string, in io.Reader, out io.Writer) *REPL {
 func (r *REPL) Run() error {
 	r.printWelcome()
 
-	scanner := bufio.NewScanner(r.in)
 	for {
-		prompt := r.formatPrompt()
-		fmt.Fprint(r.out, prompt)
-
-		if !scanner.Scan() {
-			// EOF or interrupt
-			fmt.Fprintln(r.out, "\nGoodbye.")
-			break
+		r.editor.SetContext(r.harness, r.sessionID, "ready")
+		line, err := r.editor.ReadLine()
+		if err != nil {
+			if err == io.EOF {
+				fmt.Fprintln(r.out, "Goodbye.")
+				break
+			}
+			return err
 		}
 
-		line := strings.TrimSpace(scanner.Text())
+		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
@@ -83,23 +87,44 @@ func (r *REPL) Run() error {
 		r.executePrompt(line)
 	}
 
-	return scanner.Err()
+	return nil
 }
 
 func (r *REPL) printWelcome() {
-	fmt.Fprintf(r.out, "\n%s\n", ui.Bold+ui.Cyan+"╭── Keystone Interactive Shell ─────────────────────────────────────────"+ui.Reset)
-	fmt.Fprintf(r.out, "%s  %s  %s\n", ui.Cyan+"│"+ui.Reset, ui.Bold+"Workspace:"+ui.Reset, r.root)
-	fmt.Fprintf(r.out, "%s  %s    %s\n", ui.Cyan+"│"+ui.Reset, ui.Bold+"Harness:"+ui.Reset, ui.Cyan+r.harness+ui.Reset)
-	sessDisplay := "<new session>"
-	if r.sessionID != "" {
-		sessDisplay = r.sessionID
+	account := detectAccount()
+	modelInfo := detectModel(r.harness)
+	ui.PrintBanner(r.out, r.root, r.harness, account, modelInfo)
+}
+
+func detectAccount() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		p := filepath.Join(home, ".gemini", "google_accounts.json")
+		if data, err := os.ReadFile(p); err == nil {
+			var acc struct {
+				Active *string  `json:"active"`
+				Old    []string `json:"old"`
+			}
+			if err := json.Unmarshal(data, &acc); err == nil {
+				if acc.Active != nil && *acc.Active != "" {
+					return *acc.Active + " (Google AI Pro)"
+				}
+				if len(acc.Old) > 0 {
+					return acc.Old[0] + " (Google AI Pro)"
+				}
+			}
+		}
 	}
-	fmt.Fprintf(r.out, "%s  %s    %s\n", ui.Cyan+"│"+ui.Reset, ui.Bold+"Session:"+ui.Reset, ui.Dim+sessDisplay+ui.Reset)
-	fmt.Fprintf(r.out, "%s\n", ui.Cyan+"│"+ui.Reset)
-	fmt.Fprintf(r.out, "%s  • Enter any prompt to run supervised by Keystone.\n", ui.Cyan+"│"+ui.Reset)
-	fmt.Fprintf(r.out, "%s  • Type %s for commands (%s, %s, %s, %s, etc.)\n", ui.Cyan+"│"+ui.Reset, ui.Bold+"/help"+ui.Reset, ui.Cyan+"/sessions"+ui.Reset, ui.Cyan+"/resume"+ui.Reset, ui.Cyan+"/projects"+ui.Reset, ui.Cyan+"/harness"+ui.Reset)
-	fmt.Fprintf(r.out, "%s  • Type %s or press Ctrl+C to exit.\n", ui.Cyan+"│"+ui.Reset, ui.Bold+"/exit"+ui.Reset)
-	fmt.Fprintf(r.out, "%s\n\n", ui.Bold+ui.Cyan+"╰───────────────────────────────────────────────────────────────────────"+ui.Reset)
+	return "Keystone Supervisor"
+}
+
+func detectModel(harnessName string) string {
+	if harnessName == "antigravity" || harnessName == "agy" {
+		return "Gemini 3.8 Flash (High)"
+	}
+	if harnessName == "codex" {
+		return "Codex (o3 / High)"
+	}
+	return "Supervised Autonomy"
 }
 
 func (r *REPL) formatPrompt() string {

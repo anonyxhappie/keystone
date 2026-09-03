@@ -92,6 +92,9 @@ func RecordIncident(s state.Store, i domain.Incident) (domain.Incident, domain.W
 	if i.ID == "" {
 		i.ID = fmt.Sprintf("INC-%d", time.Now().UnixNano())
 	}
+	if i.CreatedAt.IsZero() {
+		i.CreatedAt = time.Now().UTC()
+	}
 	o := IncidentOrder(i)
 	i.WorkOrderID = o.ID
 	if err := s.Write("incidents/"+i.ID+".json", i); err != nil {

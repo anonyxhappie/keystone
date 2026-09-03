@@ -27,26 +27,34 @@ import (
 const version = "2.1.0"
 
 func main() {
-	if len(os.Args) < 2 {
+	args := os.Args[1:]
+	root := os.Getenv("KEYSTONE_ROOT")
+	if len(args) >= 2 && (args[0] == "-C" || args[0] == "--root") {
+		root = args[1]
+		args = args[2:]
+	}
+	if root == "" {
+		root, _ = os.Getwd()
+	}
+	if len(args) < 1 {
 		usage()
 		return
 	}
-	root, _ := os.Getwd()
-	switch os.Args[1] {
+	switch args[0] {
 	case "init":
 		runInit(root)
 	case "status":
 		runStatus(root)
 	case "ask":
-		runAsk(root, os.Args[2:])
+		runAsk(root, args[1:])
 	case "run":
-		runRun(root, os.Args[2:])
+		runRun(root, args[1:])
 	case "continue":
 		runContinue(root)
 	case "pause":
 		runPause(root)
 	case "approve":
-		runApprove(root, os.Args[2:])
+		runApprove(root, args[1:])
 	case "stop":
 		runStop(root)
 	case "validate":
@@ -54,7 +62,7 @@ func main() {
 	case "review":
 		runReview(root)
 	case "replay":
-		runReplay(root, os.Args[2:])
+		runReplay(root, args[1:])
 	case "doctor":
 		runDoctor(root)
 	case "version":
@@ -95,6 +103,12 @@ func runStatus(root string) {
 	var p domain.Project
 	if err := state.New(root).Read("project.json", &p); err != nil {
 		fatal(fmt.Errorf("Keystone is not initialized: %w", err))
+	}
+	if p.CreatedAt.IsZero() {
+		p.CreatedAt = time.Now().UTC()
+	}
+	if p.UpdatedAt.IsZero() {
+		p.UpdatedAt = time.Now().UTC()
 	}
 	snapshot, err := state.New(root).LoadSnapshot()
 	if err != nil {

@@ -63,6 +63,7 @@ type Report struct {
 	EvidenceIDs      []string            `json:"evidenceIds,omitempty"`
 	ChangedFiles     []string            `json:"changedFiles,omitempty"`
 	ContextManifest  string              `json:"contextManifest,omitempty"`
+	ContextTokens    int                 `json:"contextTokens,omitempty"`
 	Validations      []validation.Result `json:"validations,omitempty"`
 	Attempts         int                 `json:"attempts"`
 	Error            string              `json:"error,omitempty"`
@@ -246,15 +247,38 @@ func (e *Engine) Run(ctx stdcontext.Context, request string, adapter harness.Ada
 				return e.block(ctx, m, report, err)
 			}
 		}
-		packet := context.CompileWithImpact(e.Root, work.Packet(order), changed)
+		basePacket := work.Packet(order)
 		for _, l := range learning.Active(e.Store, "project") {
-			packet.Context = append(packet.Context, domain.ContextRef{Type: "learning", Path: "learning/" + l.ID, Reason: "active, evidence-backed project learning", Source: "learning", Relevance: 0.7, TokenEstimate: len(l.ProposedChange) / 4})
+			basePacket.Context = append(basePacket.Context, domain.ContextRef{
+				Type:          "learning",
+				Path:          "learning/" + l.ID,
+				Reason:        "active, evidence-backed project learning",
+				Source:        "learning",
+				Relevance:     0.7,
+				TokenEstimate: len(l.ProposedChange) / 4,
+			})
+		}
+		packet, planErr := context.PlanContext(e.Root, basePacket, changed, e.Limits.MaxContextTokens)
+		if planErr != nil {
+			return e.block(ctx, m, report, planErr)
 		}
 		packet.Validation = validation.PlanFor(order.Risk, projectCapabilities(e.Store)).Checks
 		report.ContextManifest = fmt.Sprintf("work/%s.packet.%d.json", order.ID, attempt)
+		report.ContextTokens = packet.ContextTokens
 		if err := e.Store.Write(report.ContextManifest, packet); err != nil {
 			return e.block(ctx, m, report, err)
 		}
+		auditManifestPath := fmt.Sprintf("manifests/context-%s-%d.json", order.ID, attempt)
+		_ = e.Store.Write(auditManifestPath, map[string]any{
+			"workOrderId": order.ID,
+			"runId":       report.RunID,
+			"attempt":     attempt,
+			"budget":      e.Limits.MaxContextTokens,
+			"finalTokens": packet.ContextTokens,
+			"itemCount":   len(packet.Context),
+			"decisions":   packet.ContextDecisions,
+			"updatedAt":   time.Now().UTC(),
+		})
 		if e.Limits.MaxContextTokens > 0 && packetTokens(packet) > e.Limits.MaxContextTokens {
 			return e.block(ctx, m, report, fmt.Errorf("context budget exceeded: %d > %d tokens", packetTokens(packet), e.Limits.MaxContextTokens))
 		}
@@ -730,6 +754,9 @@ func (e *Engine) block(ctx stdcontext.Context, m *runtime.Machine, report Report
 		var order domain.WorkOrder
 		if readErr := e.Store.Read("work/"+report.WorkOrderID+".json", &order); readErr == nil {
 			order.Status = domain.StatusBlocked
+			if order.CreatedAt.IsZero() {
+				order.CreatedAt = time.Now().UTC()
+			}
 			order.UpdatedAt = time.Now().UTC()
 			if writeErr := e.Store.Write("work/"+report.WorkOrderID+".json", order); writeErr != nil {
 				return report, writeErr

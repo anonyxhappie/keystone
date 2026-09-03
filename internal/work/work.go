@@ -9,7 +9,8 @@ import (
 )
 
 func NewOrder(request string) domain.WorkOrder {
-	return domain.WorkOrder{ID: fmt.Sprintf("WO-%d", time.Now().UnixNano()), SourceRequest: request, Objective: strings.TrimSpace(request), Risk: domain.Risk{Level: "low", Score: 0}, Autonomy: "assist", Status: domain.StatusPlanned, CreatedAt: time.Now().UTC()}
+	now := time.Now().UTC()
+	return domain.WorkOrder{ID: fmt.Sprintf("WO-%d", now.UnixNano()), SourceRequest: request, Objective: strings.TrimSpace(request), Risk: domain.Risk{Level: "low", Score: 0}, Autonomy: "assist", Status: domain.StatusPlanned, CreatedAt: now, UpdatedAt: now}
 }
 
 func AssessRisk(request string) domain.Risk {

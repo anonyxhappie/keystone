@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -278,6 +279,68 @@ func TestRunBlocksOnContextBudgetExhaustion(t *testing.T) {
 	}
 	if report.State != "BLOCKED" || !strings.Contains(report.Error, "context budget exceeded") {
 		t.Fatalf("unexpected context budget report: %+v", report)
+	}
+}
+
+func TestRunRePlansContextWhenOverBudgetAndSucceeds(t *testing.T) {
+	root := t.TempDir()
+	initRunnableFixture(t, root)
+	// Create multiple test files that would normally exceed a smaller budget
+	_ = os.Mkdir(filepath.Join(root, "tests"), 0755)
+	for i := 1; i <= 15; i++ {
+		content := fmt.Sprintf("package tests\nimport \"testing\"\nfunc TestUnit%d(t *testing.T){}\n%s", i, strings.Repeat("// filler code\n", 200))
+		_ = os.WriteFile(filepath.Join(root, "tests", fmt.Sprintf("test_%d_test.go", i)), []byte(content), 0644)
+	}
+	e, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Set budget tight enough to require re-planning and compression, but large enough for mandatory items
+	e.Limits.MaxContextTokens = 1500
+	adapter := harness.NewLocal(context.Background(), harness.Config{Name: "test", Command: "sh", Args: []string{"-c", "read request; echo '{\"type\":\"COMPLETION_CLAIM\",\"payload\":{\"claim\":\"done\"}}'"}, TimeoutSeconds: 10})
+	report, err := e.Run(context.Background(), "audit codebase and run tests", adapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.State != "COMPLETE" {
+		t.Fatalf("expected run to succeed after intelligent context re-planning, got: %+v (error: %s)", report, report.Error)
+	}
+	if report.ContextTokens > 1500 {
+		t.Fatalf("expected finalized context tokens %d <= budget 1500", report.ContextTokens)
+	}
+
+	// Verify the audit manifest was written to manifests/
+	var manifest map[string]any
+	manifestPath := fmt.Sprintf("manifests/context-%s-1.json", report.WorkOrderID)
+	if err := e.Store.Read(manifestPath, &manifest); err != nil {
+		t.Fatalf("expected audit manifest written at %s: %v", manifestPath, err)
+	}
+	if manifest["budget"] != float64(1500) || manifest["finalTokens"] == nil {
+		t.Fatalf("unexpected audit manifest content: %+v", manifest)
+	}
+}
+
+func TestNewlyCreatedStateHasNonZeroTimestamps(t *testing.T) {
+	root := t.TempDir()
+	initRunnableFixture(t, root)
+	e, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := harness.NewLocal(context.Background(), harness.Config{Name: "test", Command: "sh", Args: []string{"-c", "read req; echo '{\"type\":\"COMPLETION_CLAIM\",\"payload\":{\"claim\":\"done\"}}'"}, TimeoutSeconds: 10})
+	report, err := e.Run(context.Background(), "test timestamps", adapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var order domain.WorkOrder
+	if err := e.Store.Read("work/"+report.WorkOrderID+".json", &order); err != nil {
+		t.Fatal(err)
+	}
+	if order.CreatedAt.IsZero() || order.CreatedAt.Year() <= 1 {
+		t.Fatalf("expected valid non-zero CreatedAt, got: %v", order.CreatedAt)
+	}
+	if order.UpdatedAt.IsZero() || order.UpdatedAt.Year() <= 1 {
+		t.Fatalf("expected valid non-zero UpdatedAt, got: %v", order.UpdatedAt)
 	}
 }
 

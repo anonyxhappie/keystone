@@ -106,23 +106,39 @@ type Risk struct {
 }
 
 type WorkPacket struct {
-	SchemaVersion      string       `json:"schemaVersion,omitempty" yaml:"schemaVersion,omitempty"`
-	WorkOrderID        string       `json:"workOrderId" yaml:"workOrderId"`
-	Objective          string       `json:"objective" yaml:"objective"`
-	Requirements       []string     `json:"requirements,omitempty" yaml:"requirements,omitempty"`
-	Constraints        []string     `json:"constraints,omitempty" yaml:"constraints,omitempty"`
-	Context            []ContextRef `json:"context,omitempty" yaml:"context,omitempty"`
-	Validation         []string     `json:"validation,omitempty" yaml:"validation,omitempty"`
-	CompletionCriteria []string     `json:"completionCriteria,omitempty" yaml:"completionCriteria,omitempty"`
+	SchemaVersion      string            `json:"schemaVersion,omitempty" yaml:"schemaVersion,omitempty"`
+	WorkOrderID        string            `json:"workOrderId" yaml:"workOrderId"`
+	Objective          string            `json:"objective" yaml:"objective"`
+	Requirements       []string          `json:"requirements,omitempty" yaml:"requirements,omitempty"`
+	Constraints        []string          `json:"constraints,omitempty" yaml:"constraints,omitempty"`
+	Context            []ContextRef      `json:"context,omitempty" yaml:"context,omitempty"`
+	Validation         []string          `json:"validation,omitempty" yaml:"validation,omitempty"`
+	CompletionCriteria []string          `json:"completionCriteria,omitempty" yaml:"completionCriteria,omitempty"`
+	ContextDecisions   []ContextDecision `json:"contextDecisions,omitempty" yaml:"contextDecisions,omitempty"`
+	ContextBudget      int               `json:"contextBudget,omitempty" yaml:"contextBudget,omitempty"`
+	ContextTokens      int               `json:"contextTokens,omitempty" yaml:"contextTokens,omitempty"`
 }
 
 type ContextRef struct {
-	Type          string  `json:"type,omitempty" yaml:"type,omitempty"`
-	Path          string  `json:"path" yaml:"path"`
-	Reason        string  `json:"reason" yaml:"reason"`
-	Source        string  `json:"source" yaml:"source"`
-	Relevance     float64 `json:"relevance,omitempty" yaml:"relevance,omitempty"`
-	TokenEstimate int     `json:"tokenEstimate,omitempty" yaml:"tokenEstimate,omitempty"`
+	Type           string  `json:"type,omitempty" yaml:"type,omitempty"`
+	Path           string  `json:"path" yaml:"path"`
+	Reason         string  `json:"reason" yaml:"reason"`
+	Source         string  `json:"source" yaml:"source"`
+	Relevance      float64 `json:"relevance,omitempty" yaml:"relevance,omitempty"`
+	TokenEstimate  int     `json:"tokenEstimate,omitempty" yaml:"tokenEstimate,omitempty"`
+	Compressed     bool    `json:"compressed,omitempty" yaml:"compressed,omitempty"`
+	OriginalTokens int     `json:"originalTokens,omitempty" yaml:"originalTokens,omitempty"`
+	Summary        string  `json:"summary,omitempty" yaml:"summary,omitempty"`
+}
+
+type ContextDecision struct {
+	Path           string  `json:"path" yaml:"path"`
+	Type           string  `json:"type" yaml:"type"`
+	Action         string  `json:"action" yaml:"action"` // "retained", "omitted", "compressed"
+	Reason         string  `json:"reason" yaml:"reason"`
+	Relevance      float64 `json:"relevance,omitempty" yaml:"relevance,omitempty"`
+	OriginalTokens int     `json:"originalTokens,omitempty" yaml:"originalTokens,omitempty"`
+	TokenEstimate  int     `json:"tokenEstimate" yaml:"tokenEstimate"`
 }
 
 type NextAction struct {
@@ -284,10 +300,11 @@ type Deployment struct {
 	ReleaseID   string `json:"releaseId,omitempty"`
 }
 type Incident struct {
-	ID          string `json:"id"`
-	Summary     string `json:"summary"`
-	Severity    string `json:"severity"`
-	WorkOrderID string `json:"workOrderId,omitempty"`
+	ID          string    `json:"id"`
+	Summary     string    `json:"summary"`
+	Severity    string    `json:"severity"`
+	WorkOrderID string    `json:"workOrderId,omitempty"`
+	CreatedAt   time.Time `json:"createdAt,omitempty"`
 }
 
 type Environment struct {

@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1.1
+
+Intelligent context budget handling, deterministic progressive re-planning, and timestamp safety:
+- Replaced immediate fail-closed context budget blocking with progressive context re-planning (`PlanContext`).
+- Deterministic structural compression for repository files (test suites, markdown documentation, and exported source code declarations) with minimal token footprints.
+- Redundancy elimination and task-aware relevance ranking preserving project instruction guardrails (`AGENTS.md`, root `README.md`, `CLAUDE.md`, `.cursorrules`), user constraints, and critical evidence.
+- Full context decision audit trails recorded in `packet.ContextDecisions` and durable manifests in `.keystone/manifests/` detailing retained, omitted, and compressed items with rationale and token savings.
+- Fail-closed bounded safety check when non-negotiable mandatory items alone exceed the configured budget.
+- Fixed zero-value timestamps across `WorkOrder.UpdatedAt`, `Incident.CreatedAt`, and status inspection.
+- Added `-C` / `--root` and `KEYSTONE_ROOT` directory override support to the CLI for multi-repository workflows.
+
 ## 2.1.0
 
 Hardened completion of Keystone V2 engine, supervisor, and real headless harness providers:

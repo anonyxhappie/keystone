@@ -46,3 +46,26 @@ func TestPrintBanner(t *testing.T) {
 		}
 	}
 }
+
+func TestPromptEditorSuggestions(t *testing.T) {
+	pe := NewPromptEditor(strings.NewReader(""), &bytes.Buffer{}, "antigravity", "", "ready")
+	suggestions := pe.suggestionProvider("/")
+	if len(suggestions) < 10 {
+		t.Fatalf("expected at least 10 slash commands for '/', got %d", len(suggestions))
+	}
+
+	foundProjects := false
+	foundSessions := false
+	for _, s := range suggestions {
+		if s.Command == "/projects" {
+			foundProjects = true
+		}
+		if s.Command == "/sessions" {
+			foundSessions = true
+		}
+	}
+	if !foundProjects || !foundSessions {
+		t.Fatalf("expected /projects and /sessions in suggestions: %+v", suggestions)
+	}
+}
+

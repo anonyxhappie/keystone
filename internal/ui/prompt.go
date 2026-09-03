@@ -6,45 +6,49 @@ import (
 	"io"
 	"os"
 	"strings"
-	"unicode/utf8"
 
 	"golang.org/x/term"
 )
 
-// CommandItem defines a slash command with description for the autocomplete dropdown.
+// CommandItem defines a suggestion item for the dropdown.
 type CommandItem struct {
 	Command     string
 	Description string
+	InsertText  string
+	Immediate   bool
 }
 
 // DefaultSlashCommands lists all built-in slash commands.
 var DefaultSlashCommands = []CommandItem{
-	{Command: "/sessions", Description: "List conversations across Keystone & harnesses"},
-	{Command: "/resume", Description: "Resume a conversation by index or session ID"},
-	{Command: "/new", Description: "Start a fresh conversation (reset active session)"},
-	{Command: "/harness", Description: "Switch active harness (antigravity, codex, auto)"},
-	{Command: "/projects", Description: "List local code projects and workspaces"},
-	{Command: "/project", Description: "Switch active workspace directory"},
-	{Command: "/status", Description: "Inspect project state, lifecycle, and checkpoints"},
-	{Command: "/verify", Description: "Run deterministic validation checks on demand"},
-	{Command: "/review", Description: "Inspect supervisor findings, drift, and advice"},
-	{Command: "/replay", Description: "Replay execution events of a previous run"},
-	{Command: "/doctor", Description: "Check environment, harness health, and tools"},
-	{Command: "/clear", Description: "Clear terminal screen"},
-	{Command: "/exit", Description: "Exit the interactive session"},
+	{Command: "/sessions", Description: "List conversations across Keystone & harnesses", InsertText: "/sessions", Immediate: true},
+	{Command: "/resume", Description: "Resume a conversation by index or session ID", InsertText: "/resume ", Immediate: false},
+	{Command: "/new", Description: "Start a fresh conversation (reset active session)", InsertText: "/new", Immediate: true},
+	{Command: "/harness", Description: "Switch active harness (antigravity, codex, auto)", InsertText: "/harness ", Immediate: false},
+	{Command: "/projects", Description: "List local code projects and workspaces", InsertText: "/projects", Immediate: true},
+	{Command: "/project", Description: "Switch active workspace directory", InsertText: "/project ", Immediate: false},
+	{Command: "/status", Description: "Inspect project state, lifecycle, and checkpoints", InsertText: "/status", Immediate: true},
+	{Command: "/verify", Description: "Run deterministic validation checks on demand", InsertText: "/verify", Immediate: true},
+	{Command: "/review", Description: "Inspect supervisor findings, drift, and advice", InsertText: "/review", Immediate: true},
+	{Command: "/replay", Description: "Replay execution events of a previous run", InsertText: "/replay ", Immediate: false},
+	{Command: "/doctor", Description: "Check environment, harness health, and tools", InsertText: "/doctor", Immediate: true},
+	{Command: "/clear", Description: "Clear terminal screen", InsertText: "/clear", Immediate: true},
+	{Command: "/exit", Description: "Exit the interactive session", InsertText: "/exit", Immediate: true},
 }
 
-// PromptEditor provides rich interactive line editing with slash command autocomplete.
+// SuggestionProvider returns dynamic suggestions given the current prompt line.
+type SuggestionProvider func(input string) []CommandItem
+
+// PromptEditor provides rich interactive line editing with scrolling autocomplete dropdown.
 type PromptEditor struct {
-	in              io.Reader
-	out             io.Writer
-	fallbackScanner *bufio.Scanner
-	commands        []CommandItem
-	harnessName     string
-	activeSession   string
-	statusText      string
-	history         []string
-	historyIndex    int
+	in                 io.Reader
+	out                io.Writer
+	fallbackScanner    *bufio.Scanner
+	suggestionProvider SuggestionProvider
+	harnessName        string
+	activeSession      string
+	statusText         string
+	history            []string
+	historyIndex       int
 }
 
 // NewPromptEditor creates a new interactive prompt editor.
@@ -53,11 +57,28 @@ func NewPromptEditor(in io.Reader, out io.Writer, harnessName, activeSession, st
 		in:              in,
 		out:             out,
 		fallbackScanner: bufio.NewScanner(in),
-		commands:        DefaultSlashCommands,
 		harnessName:     harnessName,
 		activeSession:   activeSession,
 		statusText:      statusText,
+		suggestionProvider: func(input string) []CommandItem {
+			if !strings.HasPrefix(input, "/") {
+				return nil
+			}
+			lower := strings.ToLower(input)
+			var matched []CommandItem
+			for _, c := range DefaultSlashCommands {
+				if strings.HasPrefix(strings.ToLower(c.Command), lower) {
+					matched = append(matched, c)
+				}
+			}
+			return matched
+		},
 	}
+}
+
+// SetSuggestionProvider sets a custom suggestion function.
+func (pe *PromptEditor) SetSuggestionProvider(provider SuggestionProvider) {
+	pe.suggestionProvider = provider
 }
 
 // SetContext updates active harness and session info for prompt display.
@@ -67,11 +88,10 @@ func (pe *PromptEditor) SetContext(harnessName, sessionID, statusText string) {
 	pe.statusText = statusText
 }
 
-// ReadLine reads a line interactively with real-time dropdown support.
+// ReadLine reads a line interactively with real-time dropdown and scroll support.
 func (pe *PromptEditor) ReadLine() (string, error) {
 	file, isFile := pe.in.(*os.File)
 	if !isFile || !term.IsTerminal(int(file.Fd())) {
-		// Non-interactive fallback for pipes, scripts, and tests
 		if !pe.fallbackScanner.Scan() {
 			if err := pe.fallbackScanner.Err(); err != nil {
 				return "", err
@@ -84,11 +104,10 @@ func (pe *PromptEditor) ReadLine() (string, error) {
 	fd := int(file.Fd())
 	oldState, err := term.MakeRaw(fd)
 	if err != nil {
-		scanner := bufio.NewScanner(pe.in)
-		if !scanner.Scan() {
+		if !pe.fallbackScanner.Scan() {
 			return "", io.EOF
 		}
-		return strings.TrimSpace(scanner.Text()), nil
+		return strings.TrimSpace(pe.fallbackScanner.Text()), nil
 	}
 	defer func() {
 		_ = term.Restore(fd, oldState)
@@ -97,91 +116,125 @@ func (pe *PromptEditor) ReadLine() (string, error) {
 	var buffer []rune
 	cursorPos := 0
 	selectedIndex := 0
+	scrollOffset := 0
+	menuDismissed := false
 	renderedExtraLines := 0
 
-	clearExtraLines := func() {
+	clearMenuLines := func() {
 		if renderedExtraLines > 0 {
-			for i := 0; i < renderedExtraLines; i++ {
-				fmt.Fprint(pe.out, "\r\n\033[2K")
-			}
-			fmt.Fprintf(pe.out, "\033[%dA\r", renderedExtraLines)
+			// Clear all rendered extra lines from cursor down
+			fmt.Fprint(pe.out, "\r\n\033[J")
+			// Move cursor back up to prompt line
+			fmt.Fprintf(pe.out, "\033[%dA\r", 1)
 			renderedExtraLines = 0
 		}
 	}
 
-	filterCommands := func() []CommandItem {
+	getSuggestions := func() []CommandItem {
+		if menuDismissed {
+			return nil
+		}
 		input := string(buffer)
-		if !strings.HasPrefix(input, "/") {
-			return nil
+		if pe.suggestionProvider != nil {
+			return pe.suggestionProvider(input)
 		}
-		// If input contains arguments (space), do not show command dropdown
-		if strings.Contains(input, " ") {
-			return nil
-		}
-		var matched []CommandItem
-		lower := strings.ToLower(input)
-		for _, c := range pe.commands {
-			if strings.HasPrefix(strings.ToLower(c.Command), lower) {
-				matched = append(matched, c)
-			}
-		}
-		return matched
+		return nil
 	}
 
-	redraw := func() {
-		// Clear previously rendered dropdown lines below
-		clearExtraLines()
+	const maxVisible = 7
 
-		// Clear current prompt line and write prompt + buffer
+	redraw := func() {
+		// Clean up dropdown from previous draw
+		clearMenuLines()
+
+		// Get terminal width to prevent line wrapping
+		termWidth := 80
+		if w, _, err := term.GetSize(fd); err == nil && w > 30 {
+			termWidth = w
+		}
+
+		// Re-render prompt line
 		fmt.Fprint(pe.out, "\r\033[2K")
 		fmt.Fprintf(pe.out, "%s> %s%s", Bold+Cyan, Reset, string(buffer))
 
-		// Check if slash command dropdown should be shown
-		matches := filterCommands()
+		matches := getSuggestions()
 		if len(matches) > 0 {
-			if selectedIndex >= len(matches) {
-				selectedIndex = 0
-			}
+			// Constrain selectedIndex
 			if selectedIndex < 0 {
 				selectedIndex = len(matches) - 1
+			} else if selectedIndex >= len(matches) {
+				selectedIndex = 0
 			}
 
-			displayLimit := 5
-			if len(matches) < displayLimit {
-				displayLimit = len(matches)
+			// Adjust scroll offset to keep selectedIndex in viewport
+			if selectedIndex < scrollOffset {
+				scrollOffset = selectedIndex
+			} else if selectedIndex >= scrollOffset+maxVisible {
+				scrollOffset = selectedIndex - maxVisible + 1
+			}
+			if scrollOffset < 0 {
+				scrollOffset = 0
+			}
+			if scrollOffset > len(matches)-maxVisible && len(matches) > maxVisible {
+				scrollOffset = len(matches) - maxVisible
 			}
 
-			// Render dropdown items
+			// Top indicator if scrolled down
 			fmt.Fprint(pe.out, "\r\n\033[2K")
 			renderedExtraLines++
+			if scrollOffset > 0 {
+				fmt.Fprintf(pe.out, "\r\n\033[2K  %s↑ %d more%s", Dim, scrollOffset, Reset)
+				renderedExtraLines++
+			}
 
-			for i := 0; i < displayLimit; i++ {
+			// Render visible window of items
+			endIndex := scrollOffset + maxVisible
+			if endIndex > len(matches) {
+				endIndex = len(matches)
+			}
+
+			for i := scrollOffset; i < endIndex; i++ {
 				item := matches[i]
 				prefix := "  "
 				cmdStyle := Cyan
+				descStyle := Dim
 				if i == selectedIndex {
 					prefix = Bold + Cyan + "> " + Reset
 					cmdStyle = Bold + White
+					descStyle = White
 				}
-				fmt.Fprintf(pe.out, "\r\n\033[2K%s%-28s %s%s%s", prefix, cmdStyle+item.Command+Reset, Dim, item.Description, Reset)
+
+				cmdCol := fmt.Sprintf("%-28s", item.Command)
+				descCol := item.Description
+				availDesc := termWidth - 32
+				if availDesc > 10 && len(descCol) > availDesc {
+					descCol = descCol[:availDesc-3] + "..."
+				}
+
+				fmt.Fprintf(pe.out, "\r\n\033[2K%s%s %s%s%s", prefix, cmdStyle+cmdCol+Reset, descStyle, descCol, Reset)
 				renderedExtraLines++
 			}
 
-			if len(matches) > displayLimit {
-				fmt.Fprintf(pe.out, "\r\n\033[2K  %s↓ %d more%s", Dim, len(matches)-displayLimit, Reset)
+			// Bottom indicator if more items below
+			if endIndex < len(matches) {
+				fmt.Fprintf(pe.out, "\r\n\033[2K  %s↓ %d more%s", Dim, len(matches)-endIndex, Reset)
 				renderedExtraLines++
 			}
 
-			// Footer line
+			// Footer status and shortcuts
 			status := pe.harnessName
 			if pe.statusText != "" {
 				status += " · " + pe.statusText
 			}
 			fmt.Fprintf(pe.out, "\r\n\033[2K\r\n\033[2K%s↑/↓ Navigate · enter Select · tab Complete%s", Dim, Reset)
-			fmt.Fprintf(pe.out, "\r\n\033[2K%sesc to cancel%s                                                    %s%s%s", Dim, Reset, Dim, status, Reset)
+			pad := termWidth - 45 - len(status)
+			if pad < 2 {
+				pad = 2
+			}
+			fmt.Fprintf(pe.out, "\r\n\033[2K%sesc to cancel%s%s%s%s%s", Dim, Reset, strings.Repeat(" ", pad), Dim, status, Reset)
 			renderedExtraLines += 3
 
-			// Move cursor back up to prompt line and place at cursorPos
+			// Return cursor back up to prompt line at cursorPos
 			fmt.Fprintf(pe.out, "\033[%dA\r\033[%dC", renderedExtraLines, 2+cursorPos)
 		} else {
 			// Position cursor on prompt line
@@ -191,138 +244,190 @@ func (pe *PromptEditor) ReadLine() (string, error) {
 
 	redraw()
 
-	buf := make([]byte, 16)
 	for {
-		n, err := pe.in.Read(buf)
+		ev, err := readKeyEvent(fd, pe.in)
 		if err != nil {
-			clearExtraLines()
+			clearMenuLines()
 			fmt.Fprintln(pe.out)
 			return "", err
 		}
-		if n == 0 {
-			continue
-		}
 
-		// Handle key combinations
-		if n == 1 {
-			b := buf[0]
-			switch b {
-			case 3: // Ctrl+C
-				clearExtraLines()
+		switch ev.Type {
+		case KeyCtrlC:
+			clearMenuLines()
+			fmt.Fprint(pe.out, "\r\n")
+			return "/exit", nil
+
+		case KeyCtrlD:
+			if len(buffer) == 0 {
+				clearMenuLines()
 				fmt.Fprint(pe.out, "\r\n")
 				return "/exit", nil
-			case 4: // Ctrl+D
-				if len(buffer) == 0 {
-					clearExtraLines()
+			}
+
+		case KeyEnter:
+			matches := getSuggestions()
+			if len(matches) > 0 && selectedIndex >= 0 && selectedIndex < len(matches) {
+				selected := matches[selectedIndex]
+				if selected.Immediate {
+					clearMenuLines()
 					fmt.Fprint(pe.out, "\r\n")
-					return "/exit", nil
-				}
-			case 13, 10: // Enter
-				matches := filterCommands()
-				if len(matches) > 0 && selectedIndex >= 0 && selectedIndex < len(matches) {
-					// Complete selected command if user was browsing
-					selected := matches[selectedIndex].Command
-					buffer = []rune(selected)
-					cursorPos = len(buffer)
-				}
-				clearExtraLines()
-				fmt.Fprint(pe.out, "\r\n")
-				result := string(buffer)
-				if len(strings.TrimSpace(result)) > 0 {
+					result := selected.InsertText
+					if result == "" {
+						result = selected.Command
+					}
 					pe.history = append(pe.history, result)
+					return result, nil
 				}
-				return result, nil
-			case 9: // Tab
-				matches := filterCommands()
-				if len(matches) > 0 && selectedIndex >= 0 && selectedIndex < len(matches) {
-					selected := matches[selectedIndex].Command + " "
-					buffer = []rune(selected)
-					cursorPos = len(buffer)
+				// Non-immediate: insert command onto prompt line for argument entry
+				ins := selected.InsertText
+				if ins == "" {
+					ins = selected.Command + " "
+				}
+				buffer = []rune(ins)
+				cursorPos = len(buffer)
+				selectedIndex = 0
+				scrollOffset = 0
+				menuDismissed = false
+				redraw()
+				continue
+			}
+
+			clearMenuLines()
+			fmt.Fprint(pe.out, "\r\n")
+			result := string(buffer)
+			if len(strings.TrimSpace(result)) > 0 {
+				pe.history = append(pe.history, result)
+			}
+			return result, nil
+
+		case KeyTab:
+			matches := getSuggestions()
+			if len(matches) > 0 && selectedIndex >= 0 && selectedIndex < len(matches) {
+				selected := matches[selectedIndex]
+				ins := selected.InsertText
+				if ins == "" {
+					ins = selected.Command + " "
+				}
+				buffer = []rune(ins)
+				cursorPos = len(buffer)
+				selectedIndex = 0
+				scrollOffset = 0
+				menuDismissed = false
+				redraw()
+				continue
+			}
+
+		case KeyEscape:
+			menuDismissed = true
+			if string(buffer) == "/" {
+				buffer = nil
+				cursorPos = 0
+			}
+			redraw()
+			continue
+
+		case KeyUp:
+			matches := getSuggestions()
+			if len(matches) > 0 {
+				selectedIndex--
+				if selectedIndex < 0 {
+					selectedIndex = len(matches) - 1
+				}
+				redraw()
+				continue
+			}
+			// History navigation
+			if len(pe.history) > 0 {
+				if pe.historyIndex < len(pe.history) {
+					pe.historyIndex++
+				}
+				item := pe.history[len(pe.history)-pe.historyIndex]
+				buffer = []rune(item)
+				cursorPos = len(buffer)
+				redraw()
+			}
+			continue
+
+		case KeyDown:
+			matches := getSuggestions()
+			if len(matches) > 0 {
+				selectedIndex++
+				if selectedIndex >= len(matches) {
 					selectedIndex = 0
 				}
 				redraw()
 				continue
-			case 127, 8: // Backspace
-				if cursorPos > 0 {
-					buffer = append(buffer[:cursorPos-1], buffer[cursorPos:]...)
-					cursorPos--
-				}
-				redraw()
-				continue
-			case 27: // Single Escape
-				clearExtraLines()
-				redraw()
-				continue
-			default:
-				if b >= 32 && b <= 126 {
-					r := rune(b)
-					buffer = append(buffer[:cursorPos], append([]rune{r}, buffer[cursorPos:]...)...)
-					cursorPos++
-					redraw()
-					continue
-				}
 			}
-		}
-
-		// Handle ANSI Escape Sequences (Arrows, PageUp/Down, etc.)
-		if n >= 3 && buf[0] == 27 && buf[1] == 91 {
-			matches := filterCommands()
-			switch buf[2] {
-			case 65: // Up Arrow
-				if len(matches) > 0 {
-					selectedIndex--
-					if selectedIndex < 0 {
-						selectedIndex = len(matches) - 1
-					}
-				} else if len(pe.history) > 0 {
-					if pe.historyIndex < len(pe.history) {
-						pe.historyIndex++
-					}
-					item := pe.history[len(pe.history)-pe.historyIndex]
-					buffer = []rune(item)
-					cursorPos = len(buffer)
-				}
+			// History navigation
+			if pe.historyIndex > 1 {
+				pe.historyIndex--
+				item := pe.history[len(pe.history)-pe.historyIndex]
+				buffer = []rune(item)
+				cursorPos = len(buffer)
 				redraw()
-				continue
-			case 66: // Down Arrow
-				if len(matches) > 0 {
-					selectedIndex++
-					if selectedIndex >= len(matches) {
-						selectedIndex = 0
-					}
-				} else if pe.historyIndex > 1 {
-					pe.historyIndex--
-					item := pe.history[len(pe.history)-pe.historyIndex]
-					buffer = []rune(item)
-					cursorPos = len(buffer)
-				} else if pe.historyIndex == 1 {
-					pe.historyIndex = 0
-					buffer = nil
-					cursorPos = 0
-				}
+			} else if pe.historyIndex == 1 {
+				pe.historyIndex = 0
+				buffer = nil
+				cursorPos = 0
 				redraw()
-				continue
-			case 67: // Right Arrow
-				if cursorPos < len(buffer) {
-					cursorPos++
-				}
-				redraw()
-				continue
-			case 68: // Left Arrow
-				if cursorPos > 0 {
-					cursorPos--
-				}
-				redraw()
-				continue
 			}
-		}
+			continue
 
-		// UTF-8 multi-byte characters
-		r, size := utf8.DecodeRune(buf[:n])
-		if r != utf8.RuneError && size > 0 && r >= 32 {
+		case KeyLeft:
+			if cursorPos > 0 {
+				cursorPos--
+				redraw()
+			}
+			continue
+
+		case KeyRight:
+			if cursorPos < len(buffer) {
+				cursorPos++
+				redraw()
+			}
+			continue
+
+		case KeyHome:
+			cursorPos = 0
+			redraw()
+			continue
+
+		case KeyEnd:
+			cursorPos = len(buffer)
+			redraw()
+			continue
+
+		case KeyBackspace:
+			if cursorPos > 0 {
+				buffer = append(buffer[:cursorPos-1], buffer[cursorPos:]...)
+				cursorPos--
+				selectedIndex = 0
+				scrollOffset = 0
+				menuDismissed = false
+				redraw()
+			}
+			continue
+
+		case KeyDelete:
+			if cursorPos < len(buffer) {
+				buffer = append(buffer[:cursorPos], buffer[cursorPos+1:]...)
+				selectedIndex = 0
+				scrollOffset = 0
+				menuDismissed = false
+				redraw()
+			}
+			continue
+
+		case KeyRune:
+			r := ev.Rune
 			buffer = append(buffer[:cursorPos], append([]rune{r}, buffer[cursorPos:]...)...)
 			cursorPos++
+			selectedIndex = 0
+			scrollOffset = 0
+			menuDismissed = false
 			redraw()
+			continue
 		}
 	}
 }

@@ -41,7 +41,7 @@ func New(root, defaultHarness string, in io.Reader, out io.Writer) *REPL {
 	}
 	term := ui.New(out)
 	editor := ui.NewPromptEditor(in, out, defaultHarness, "", "ready")
-	return &REPL{
+	r := &REPL{
 		root:    root,
 		harness: defaultHarness,
 		term:    term,
@@ -49,6 +49,8 @@ func New(root, defaultHarness string, in io.Reader, out io.Writer) *REPL {
 		in:      in,
 		out:     out,
 	}
+	editor.SetSuggestionProvider(r.provideSuggestions)
+	return r
 }
 
 // Run starts the persistent interactive loop. It only terminates when the user manually exits.
@@ -239,17 +241,7 @@ func (r *REPL) handleListSessions() {
 
 func (r *REPL) handleResume(args []string) {
 	if len(args) == 0 {
-		if len(r.cachedSessions) == 0 {
-			r.cachedSessions = session.DiscoverSessions(r.root)
-		}
-		if len(r.cachedSessions) > 0 {
-			s := r.cachedSessions[0]
-			r.sessionID = s.ID
-			r.harness = s.Harness
-			fmt.Fprintf(r.out, "%s Resumed most recent session %s (%s: %s)\n\n", ui.Green+"✔"+ui.Reset, s.ID, s.Harness, s.Title)
-			return
-		}
-		fmt.Fprintf(r.out, "%s /resume requires a session ID or index number (e.g. `/resume 1`)\n\n", ui.Yellow+"▲"+ui.Reset)
+		r.handleListSessions()
 		return
 	}
 
@@ -300,7 +292,7 @@ func (r *REPL) handleListProjects() {
 
 func (r *REPL) handleSwitchProject(args []string) {
 	if len(args) == 0 {
-		fmt.Fprintf(r.out, "Current project: %s\n\n", ui.Bold+r.root+ui.Reset)
+		r.handleListProjects()
 		return
 	}
 
@@ -486,4 +478,99 @@ func (r *REPL) executePrompt(prompt string) {
 			_, _ = e.Continue(context.Background(), nil)
 		}
 	}
+}
+
+func (r *REPL) provideSuggestions(input string) []ui.CommandItem {
+	if !strings.HasPrefix(input, "/") {
+		return nil
+	}
+
+	// 1. /project or /cd with space
+	if strings.HasPrefix(input, "/project ") || strings.HasPrefix(input, "/cd ") {
+		query := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(input, "/project "), "/cd ")))
+		if len(r.cachedProjects) == 0 {
+			r.cachedProjects = session.DiscoverProjects(r.root)
+		}
+		var items []ui.CommandItem
+		for i, p := range r.cachedProjects {
+			label := fmt.Sprintf("%d. %s", i+1, p.Name)
+			if p.Active {
+				label += " *"
+			}
+			if query == "" || strings.Contains(strings.ToLower(p.Name), query) || strings.Contains(strings.ToLower(p.Path), query) {
+				items = append(items, ui.CommandItem{
+					Command:     label,
+					Description: p.Path,
+					InsertText:  fmt.Sprintf("/project %d", i+1),
+					Immediate:   true,
+				})
+			}
+		}
+		return items
+	}
+
+	// 2. /resume or /continue with space
+	if strings.HasPrefix(input, "/resume ") || strings.HasPrefix(input, "/continue ") {
+		query := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(input, "/resume "), "/continue ")))
+		if len(r.cachedSessions) == 0 {
+			r.cachedSessions = session.DiscoverSessions(r.root)
+		}
+		var items []ui.CommandItem
+		limit := len(r.cachedSessions)
+		if limit > 20 {
+			limit = 20
+		}
+		for i := 0; i < limit; i++ {
+			s := r.cachedSessions[i]
+			shortID := s.ID
+			if len(shortID) > 8 {
+				shortID = shortID[:8]
+			}
+			label := fmt.Sprintf("%d. %s (%s)", i+1, s.Harness, shortID)
+			if query == "" || strings.Contains(strings.ToLower(s.Title), query) || strings.Contains(strings.ToLower(s.ID), query) || strings.Contains(strings.ToLower(s.Harness), query) {
+				items = append(items, ui.CommandItem{
+					Command:     label,
+					Description: s.Title,
+					InsertText:  fmt.Sprintf("/resume %d", i+1),
+					Immediate:   true,
+				})
+			}
+		}
+		return items
+	}
+
+	// 3. /harness with space
+	if strings.HasPrefix(input, "/harness ") {
+		harnesses := []struct {
+			name string
+			desc string
+		}{
+			{"antigravity", "Google Antigravity CLI (Gemini 3.8 Flash)"},
+			{"codex", "OpenAI Codex CLI (o3-mini)"},
+			{"auto", "Auto-select best available harness"},
+		}
+		query := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(input, "/harness ")))
+		var items []ui.CommandItem
+		for _, h := range harnesses {
+			if query == "" || strings.Contains(h.name, query) {
+				items = append(items, ui.CommandItem{
+					Command:     h.name,
+					Description: h.desc,
+					InsertText:  "/harness " + h.name,
+					Immediate:   true,
+				})
+			}
+		}
+		return items
+	}
+
+	// 4. Default: slash commands matching prefix
+	lower := strings.ToLower(input)
+	var matched []ui.CommandItem
+	for _, c := range ui.DefaultSlashCommands {
+		if strings.HasPrefix(strings.ToLower(c.Command), lower) {
+			matched = append(matched, c)
+		}
+	}
+	return matched
 }

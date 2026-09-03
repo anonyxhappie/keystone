@@ -68,8 +68,13 @@ func DiscoverSessions(workspaceRoot string) []Session {
 		}
 	}
 
-	// Sort newest first
+	// Sort: current workspace first, then newest first
 	sort.Slice(all, func(i, j int) bool {
+		iMatch := workspaceRoot != "" && strings.Contains(all[i].Workspace, workspaceRoot)
+		jMatch := workspaceRoot != "" && strings.Contains(all[j].Workspace, workspaceRoot)
+		if iMatch != jMatch {
+			return iMatch
+		}
 		return all[i].LastModified.After(all[j].LastModified)
 	})
 
@@ -142,7 +147,20 @@ func discoverAntigravitySessions(workspaceRoot string) []Session {
 					if title == "" {
 						title = "Antigravity Conversation"
 					}
-					t, _ := time.Parse("2006-01-02 15:04:05", timeStr)
+					var t time.Time
+					for _, layout := range []string{
+						"2006-01-02 15:04:05.999999-07:00",
+						"2006-01-02 15:04:05.999999+00:00",
+						"2006-01-02 15:04:05.999999",
+						"2006-01-02 15:04:05",
+						time.RFC3339,
+						time.RFC3339Nano,
+					} {
+						if parsed, err := time.Parse(layout, timeStr); err == nil {
+							t = parsed
+							break
+						}
+					}
 					list = append(list, Session{
 						ID:           cid,
 						Harness:      "antigravity",

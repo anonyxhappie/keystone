@@ -24,7 +24,7 @@ import (
 	"github.com/anonyxhappie/keystone/internal/work"
 )
 
-const version = "2.1.2"
+const version = "2.1.3"
 
 func main() {
 	args := os.Args[1:]

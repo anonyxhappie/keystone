@@ -1,7 +1,7 @@
 {
   "schemaVersion": "2",
   "branch": "main",
-  "version": "2.1.2",
+  "version": "2.1.3",
   "sourceOfTruth": "executable code and tests",
   "evidence": {
     "automatedGates": ["go test -v ./...", "go vet ./...", "go test -race ./...", "go build -o keystone ./cmd/keystone"],
@@ -31,5 +31,5 @@
     {"name":"cross-process live harness registry","implementation":["internal/control","cmd/keystone"],"tests":["internal/control/engine_test.go"],"status":"PARTIAL","limitation":"Pause is a durable control marker; no daemon or PID registry is required by the local-first core."}
   ],
   "releaseReady": true,
-  "releaseReadyRationale": "All V2 core requirements, real provider bridges (Antigravity and Codex), supervisor findings, full lifecycle state machine, durable replay, progressive context budget re-planning, authoritative harness selection (--harness), non-destructive git mutation rollback, and all 13 CLI commands have passed automated unit, integration, and live dogfood tests. Ready for v2.1.2 release."
+  "releaseReadyRationale": "All V2 core requirements, real provider bridges (Antigravity and Codex), supervisor findings, full lifecycle state machine, durable replay, progressive context budget re-planning, authoritative harness selection (--harness), non-destructive git mutation rollback, robust CLI version probing, and all 13 CLI commands have passed automated unit, integration, and live dogfood tests. Ready for v2.1.3 release."
 }

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.1.3
+
+Robust provider probe timeout:
+- Increased CLI version probe timeout from 2s to 10s (`probeCommand`), preventing spurious timeouts during cold starts, system load, or notarization checks for `agy --version` and `codex --version`.
+
 ## 2.1.2
 
 Authoritative harness execution, fail-closed provider availability, and non-destructive read-only mutation rollback:

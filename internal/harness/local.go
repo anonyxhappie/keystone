@@ -252,13 +252,14 @@ func probeCommand(command string) (string, string, bool) {
 	if err != nil {
 		return "", fmt.Sprintf("command %q is not on PATH: %v", command, err), false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	timeout := 10 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, "--version")
 	output, err := cmd.CombinedOutput()
 	version := strings.TrimSpace(redact(string(output)))
 	if ctx.Err() != nil {
-		return path, fmt.Sprintf("version probe timed out after 2s"), false
+		return path, fmt.Sprintf("version probe timed out after %v", timeout), false
 	}
 	if err != nil {
 		if version == "" {
